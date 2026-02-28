@@ -4,7 +4,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
 } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MemoryRouter as Router,
   Route,
@@ -114,6 +114,7 @@ type CameraState = {
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
+const LAST_ACTIVE_FOLDER_STORAGE_KEY = 'timefold.lastActiveFolder';
 const CLOUD_DRAG_MIN_OFFSET = -640;
 const CLOUD_DRAG_MAX_OFFSET = 640;
 const CLOUD_DRAG_EDGE_RESISTANCE = 0.32;
@@ -1080,6 +1081,8 @@ function AppRoutes() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSettingsHydrated, setIsSettingsHydrated] = useState(false);
+  const hasRestoredFolderRef = useRef(false);
   const [settings, setSettings] = useState<SettingsValues>({
     photoAlbumLocation: '',
     metadataLocation: '',
@@ -1090,6 +1093,7 @@ function AppRoutes() {
     const rawSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
 
     if (!rawSettings) {
+      setIsSettingsHydrated(true);
       return;
     }
 
@@ -1103,39 +1107,76 @@ function AppRoutes() {
       }));
     } catch {
       window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    } finally {
+      setIsSettingsHydrated(true);
     }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-  }, [settings]);
-
-  const loadFolderImages = async (
-    folderPath: string,
-    metadataFolderPath?: string,
-  ) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const folderImages = await window.electron.folder.listImages(
-        folderPath,
-        metadataFolderPath,
-      );
-      setImages(folderImages);
-
-      if (folderImages.length === 0) {
-        setErrorMessage('No supported image files were found in this folder.');
-      }
-    } catch {
-      setImages([]);
-      setErrorMessage(
-        'Unable to read this folder. Please try another location.',
-      );
-    } finally {
-      setIsLoading(false);
+    if (!isSettingsHydrated) {
+      return;
     }
-  };
+
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [isSettingsHydrated, settings]);
+
+  const loadFolderImages = useCallback(
+    async (folderPath: string, metadataFolderPath?: string) => {
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const folderImages = await window.electron.folder.listImages(
+          folderPath,
+          metadataFolderPath,
+        );
+        setImages(folderImages);
+
+        if (folderImages.length === 0) {
+          setErrorMessage(
+            'No supported image files were found in this folder.',
+          );
+        }
+      } catch {
+        setImages([]);
+        setErrorMessage(
+          'Unable to read this folder. Please try another location.',
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isSettingsHydrated || hasRestoredFolderRef.current) {
+      return;
+    }
+
+    hasRestoredFolderRef.current = true;
+    const lastActiveFolder =
+      window.localStorage.getItem(LAST_ACTIVE_FOLDER_STORAGE_KEY)?.trim() || '';
+    const configuredAlbumFolder = settings.photoAlbumLocation.trim();
+    const folderToRestore = lastActiveFolder || configuredAlbumFolder;
+
+    if (!folderToRestore) {
+      return;
+    }
+
+    setActiveFolder(folderToRestore);
+    const effectiveMetadataLocation =
+      settings.metadataLocation.trim() ||
+      buildMetadataLocation(folderToRestore);
+    loadFolderImages(folderToRestore, effectiveMetadataLocation).catch(
+      () => undefined,
+    );
+  }, [
+    isSettingsHydrated,
+    loadFolderImages,
+    settings.metadataLocation,
+    settings.photoAlbumLocation,
+  ]);
 
   const handleFolderSelect = async () => {
     setIsSelecting(true);
@@ -1148,6 +1189,10 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
+      window.localStorage.setItem(
+        LAST_ACTIVE_FOLDER_STORAGE_KEY,
+        selectedFolder,
+      );
       const shouldSeedAlbumLocation = settings.photoAlbumLocation.trim() === '';
       const nextSettings = shouldSeedAlbumLocation
         ? {
