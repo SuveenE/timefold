@@ -43,6 +43,7 @@ export default function ImageCardModal({
   }
 
   const expectedSplatName = buildExpectedSplatName(image.name);
+  const isPlySplat = Boolean(splat && /\.ply$/i.test(splat.name));
 
   return (
     <div className="image-card-overlay">
@@ -66,24 +67,6 @@ export default function ImageCardModal({
         >
           close
         </button>
-
-        <div
-          className={`image-card-media ${
-            isImageLoading ? 'is-loading' : 'is-loaded'
-          }`}
-        >
-          {isImageLoading ? (
-            <span className="media-loading-indicator" aria-hidden="true">
-              Loading...
-            </span>
-          ) : null}
-          <img
-            src={image.url}
-            alt={image.name}
-            onLoad={() => setIsImageLoading(false)}
-            onError={() => setIsImageLoading(false)}
-          />
-        </div>
 
         <section className="image-card-details">
           <h2 className="image-card-title">{image.name}</h2>
@@ -117,16 +100,22 @@ export default function ImageCardModal({
                 <p className="image-card-splat-note">{splat.name}</p>
                 <p className="image-card-splat-path">{splat.path}</p>
                 <SplatViewer splat={splat} />
-                {splat.previewText ? (
+                {isPlySplat && splat.previewText ? (
                   <pre className="image-card-splat-preview">
                     {splat.previewText}
                   </pre>
-                ) : (
+                ) : null}
+                {isPlySplat && !splat.previewText ? (
                   <p className="image-card-splat-note">
                     No preview text available for this `.ply` file.
                   </p>
-                )}
-                {splat.isBinary ? (
+                ) : null}
+                {!isPlySplat ? (
+                  <p className="image-card-splat-note">
+                    Preview text is unavailable for `.spz` splats.
+                  </p>
+                ) : null}
+                {isPlySplat && splat.isBinary ? (
                   <p className="image-card-splat-note">
                     Binary `.ply` detected. Showing header preview.
                   </p>
@@ -141,6 +130,24 @@ export default function ImageCardModal({
             ) : null}
           </div>
         </section>
+
+        <div
+          className={`image-card-media ${
+            isImageLoading ? 'is-loading' : 'is-loaded'
+          }`}
+        >
+          {isImageLoading ? (
+            <span className="media-loading-indicator" aria-hidden="true">
+              Loading...
+            </span>
+          ) : null}
+          <img
+            src={image.url}
+            alt={image.name}
+            onLoad={() => setIsImageLoading(false)}
+            onError={() => setIsImageLoading(false)}
+          />
+        </div>
       </article>
     </div>
   );
