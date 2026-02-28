@@ -116,15 +116,6 @@ const INITIAL_CAMERA: CameraState = {
   zoom: -180,
 };
 
-const getFolderName = (folderPath: string): string => {
-  return (
-    folderPath
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .pop() || 'Workspace'
-  );
-};
-
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
@@ -275,11 +266,6 @@ function Home({
     return filteredImages.filter((image) => !failedImagePaths[image.path]);
   }, [failedImagePaths, filteredImages]);
 
-  const hiddenImageCount = Math.max(
-    0,
-    filteredPool.length - filteredImages.length,
-  );
-  const failedPreviewCount = filteredImages.length - renderableImages.length;
   const hasLoadedImages = images.length > 0 && !isLoading;
 
   const statusTitle = useMemo(() => {
@@ -341,29 +327,6 @@ function Home({
     <main className="gallery-screen">
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
-
-      <header className="library-header">
-        <div className="window-controls" aria-hidden="true">
-          <span className="traffic-dot traffic-dot-close" />
-          <span className="traffic-dot traffic-dot-minimize" />
-          <span className="traffic-dot traffic-dot-expand" />
-        </div>
-
-        <div className="header-breadcrumb" aria-label="Current section">
-          <span className="header-breadcrumb-primary">My Library</span>
-          <span className="header-breadcrumb-separator">/</span>
-          <span className="header-breadcrumb-secondary">Recent</span>
-        </div>
-
-        <button
-          type="button"
-          className="header-utility"
-          aria-label="Open settings"
-          onClick={() => navigate('/settings')}
-        >
-          <span className="orbit-icon" aria-hidden="true" />
-        </button>
-      </header>
 
       <section className="cloud-viewport" aria-live="polite">
         {renderableImages.length > 0 && (
@@ -488,79 +451,9 @@ function Home({
           </div>
         </div>
 
-        <div className="chip-row">
-          {filterChips.map((chip) => (
-            <button
-              key={chip.key}
-              type="button"
-              className={`chip ${activeFilter === chip.key ? 'active' : ''}`}
-              onClick={() => setActiveFilter(chip.key)}
-              disabled={chip.count === 0}
-            >
-              {chip.label}
-              <small>{chip.count}</small>
-            </button>
-          ))}
-        </div>
-
-        <div className="dock-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => navigate('/settings')}
-          >
-            settings
-          </button>
-          {images.length > 0 && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => navigate('/explore')}
-              disabled={isLoading}
-            >
-              explore
-            </button>
-          )}
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={onReload}
-            disabled={!activeFolder || isLoading}
-          >
-            reload
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={onSelectFolder}
-            disabled={isSelecting}
-          >
-            {isSelecting ? 'opening...' : 'choose folder'}
-          </button>
-        </div>
-
-        <section className="dock-meta">
-          <p className="folder-name">
-            {activeFolder ? getFolderName(activeFolder) : 'No folder selected'}
-          </p>
-          <p className="folder-path">
-            {activeFolder || 'Select a local folder containing image files'}
-          </p>
-          <p className="folder-note">
-            App data related to this folder is saved in the same location.
-          </p>
-          {hiddenImageCount > 0 && (
-            <p className="hint">
-              Showing first {MAX_RENDERED_IMAGES} images for smooth animation (
-              {hiddenImageCount} more not rendered).
-            </p>
-          )}
-          {failedPreviewCount > 0 && (
-            <p className="hint">
-              {failedPreviewCount} image previews failed to load in this view.
-            </p>
-          )}
-        </section>
+        <p className="folder-path">
+          {activeFolder || 'Select a local folder containing image files'}
+        </p>
       </footer>
     </main>
   );
@@ -653,6 +546,25 @@ function Explore({ images }: ExploreProps) {
     });
   };
 
+  const centerView = () => {
+    setCamera((current) => ({
+      ...current,
+      x: 0,
+      y: 0,
+    }));
+  };
+
+  const resetView = () => {
+    setCamera(INITIAL_CAMERA);
+  };
+
+  const zoomBy = (delta: number) => {
+    setCamera((current) => ({
+      ...current,
+      zoom: clamp(current.zoom + delta, -900, 260),
+    }));
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -681,6 +593,47 @@ function Explore({ images }: ExploreProps) {
         onWheel={handleWheel}
         aria-label="Interactive image space"
       >
+        <aside
+          className="explore-sidebar"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            onClick={() => navigate('/')}
+          >
+            home
+          </button>
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            onClick={centerView}
+          >
+            center
+          </button>
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            onClick={resetView}
+          >
+            reset
+          </button>
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            onClick={() => zoomBy(90)}
+          >
+            zoom +
+          </button>
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            onClick={() => zoomBy(-90)}
+          >
+            zoom -
+          </button>
+        </aside>
+
         {images.length > 0 ? (
           <div className="explore-scene">
             <div className="explore-world" style={worldStyle}>
