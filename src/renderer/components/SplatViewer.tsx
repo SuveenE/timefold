@@ -2,18 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type { ImageSplat } from '../types/gallery';
 
-type SparkSplatMesh = THREE.Object3D & {
-  initialized: Promise<unknown>;
-  update: (args: {
-    time: number;
-    deltaTime: number;
-    viewToWorld: THREE.Matrix4;
-    globalEdits: unknown[];
-  }) => void;
-  dispose: () => void;
-  getBoundingBox: (centersOnly?: boolean) => THREE.Box3;
-};
-
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
@@ -22,43 +10,35 @@ type SplatViewerProps = {
   splat: ImageSplat;
 };
 
-type SparkModuleLike = {
-  PlyReader: new (args: { fileBytes: Uint8Array }) => {
-    numSplats: number;
-    parseHeader: () => Promise<void>;
-    parseSplats: (
-      splatCallback: (
-        index: number,
-        x: number,
-        y: number,
-        z: number,
-        scaleX: number,
-        scaleY: number,
-        scaleZ: number,
-        quatX: number,
-        quatY: number,
-        quatZ: number,
-        quatW: number,
-        opacity: number,
-        r: number,
-        g: number,
-        b: number,
-      ) => void,
-      shCallback?: (...args: unknown[]) => void,
-    ) => void;
-  };
-  SplatMesh: new (options: {
-    fileBytes?: Uint8Array;
-    fileType?: unknown;
-    fileName?: string;
-    url?: string;
-  }) => SparkSplatMesh;
-  SplatFileType: {
-    PLY: unknown;
-  };
+const MAX_FALLBACK_POINTS = 180000;
+const SH_C0 = 0.28209479177387814;
+
+type PlyScalarType =
+  | 'char'
+  | 'uchar'
+  | 'short'
+  | 'ushort'
+  | 'int'
+  | 'uint'
+  | 'float'
+  | 'double';
+
+type VertexProperty = {
+  name: string;
+  type: PlyScalarType;
+  offset: number;
 };
 
-const MAX_FALLBACK_POINTS = 180000;
+const PLY_TYPE_BYTE_SIZE: Record<PlyScalarType, number> = {
+  char: 1,
+  uchar: 1,
+  short: 2,
+  ushort: 2,
+  int: 4,
+  uint: 4,
+  float: 4,
+  double: 8,
+};
 
 const toErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -108,6 +88,133 @@ const toUint8Array = (bytes: unknown): Uint8Array | null => {
   return null;
 };
 
+const findHeaderEndOffset = (bytes: Uint8Array): number => {
+  const marker = new TextEncoder().encode('end_header');
+  let i = 0;
+  while (i <= bytes.length - marker.length) {
+    let matched = true;
+    for (let j = 0; j < marker.length; j += 1) {
+      if (bytes[i + j] !== marker[j]) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      const markerEnd = i + marker.length;
+      if (markerEnd < bytes.length && bytes[markerEnd] === 10) {
+        return markerEnd + 1;
+      }
+      if (
+        markerEnd + 1 < bytes.length &&
+        bytes[markerEnd] === 13 &&
+        bytes[markerEnd + 1] === 10
+      ) {
+        return markerEnd + 2;
+      }
+    }
+
+    i += 1;
+  }
+
+  return -1;
+};
+
+const parsePlyVertexLayout = (
+  bytes: Uint8Array,
+): {
+  vertexCount: number;
+  vertexStrideBytes: number;
+  vertexProperties: VertexProperty[];
+  dataOffset: number;
+} => {
+  const dataOffset = findHeaderEndOffset(bytes);
+  if (dataOffset < 0) {
+    throw new Error('PLY header is missing end_header');
+  }
+
+  const headerText = new TextDecoder().decode(bytes.subarray(0, dataOffset));
+  const lines = headerText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines[0] !== 'ply') {
+    throw new Error('Not a PLY file');
+  }
+
+  const formatLine = lines.find((line) => line.startsWith('format '));
+  if (!formatLine || !formatLine.includes('binary_little_endian')) {
+    throw new Error('Only binary_little_endian PLY is supported');
+  }
+
+  let activeElement: string | null = null;
+  let vertexCount = 0;
+  let vertexStrideBytes = 0;
+  const vertexProperties: VertexProperty[] = [];
+
+  lines.forEach((line) => {
+    const tokens = line.split(/\s+/);
+    if (tokens[0] === 'element' && tokens.length >= 3) {
+      [, activeElement] = tokens;
+      if (activeElement === 'vertex') {
+        vertexCount = Number.parseInt(tokens[2], 10);
+      }
+    } else if (tokens[0] === 'property' && activeElement === 'vertex') {
+      if (tokens[1] === 'list') {
+        throw new Error('List properties in vertex element are not supported');
+      }
+
+      const type = tokens[1] as PlyScalarType;
+      const name = tokens[2];
+      const byteSize = PLY_TYPE_BYTE_SIZE[type];
+
+      if (!byteSize || !name) {
+        throw new Error(`Unsupported vertex property: ${line}`);
+      }
+
+      vertexProperties.push({ name, type, offset: vertexStrideBytes });
+      vertexStrideBytes += byteSize;
+    }
+  });
+
+  if (!Number.isFinite(vertexCount) || vertexCount <= 0) {
+    throw new Error('PLY file has no vertices');
+  }
+  if (vertexStrideBytes <= 0 || vertexProperties.length === 0) {
+    throw new Error('PLY vertex layout is empty');
+  }
+
+  return { vertexCount, vertexStrideBytes, vertexProperties, dataOffset };
+};
+
+const readScalar = (
+  view: DataView,
+  byteOffset: number,
+  type: PlyScalarType,
+): number => {
+  switch (type) {
+    case 'char':
+      return view.getInt8(byteOffset);
+    case 'uchar':
+      return view.getUint8(byteOffset);
+    case 'short':
+      return view.getInt16(byteOffset, true);
+    case 'ushort':
+      return view.getUint16(byteOffset, true);
+    case 'int':
+      return view.getInt32(byteOffset, true);
+    case 'uint':
+      return view.getUint32(byteOffset, true);
+    case 'float':
+      return view.getFloat32(byteOffset, true);
+    case 'double':
+      return view.getFloat64(byteOffset, true);
+    default:
+      return 0;
+  }
+};
+
 export default function SplatViewer({ splat }: SplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -124,7 +231,6 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let isDisposed = false;
     let animationFrameId = 0;
     let previousFrameTime = performance.now();
-    let loadedSplat: SparkSplatMesh | null = null;
     let loadedPoints: THREE.Points<THREE.BufferGeometry> | null = null;
     const orbitTarget = new THREE.Vector3(0, 0, 0);
     let orbitRadius = 3.2;
@@ -262,65 +368,123 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
     renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
-    const createPointFallback = async (
-      sparkModule: SparkModuleLike,
+    const createPointCloud = (
       bytes: Uint8Array,
-    ): Promise<THREE.Points<THREE.BufferGeometry>> => {
-      const reader = new sparkModule.PlyReader({ fileBytes: bytes });
-      await reader.parseHeader();
+    ): THREE.Points<THREE.BufferGeometry> => {
+      const { vertexCount, vertexStrideBytes, vertexProperties, dataOffset } =
+        parsePlyVertexLayout(bytes);
 
-      if (!Number.isFinite(reader.numSplats) || reader.numSplats < 1) {
-        throw new Error('PLY file has no splats');
+      const requiredByteLength = dataOffset + vertexCount * vertexStrideBytes;
+      if (bytes.byteLength < requiredByteLength) {
+        throw new Error('PLY file is truncated');
       }
 
-      const stride = Math.max(
-        1,
-        Math.ceil(reader.numSplats / MAX_FALLBACK_POINTS),
+      const propertyMap = new Map(
+        vertexProperties.map((property) => [property.name, property] as const),
       );
-      const sampleCount = Math.ceil(reader.numSplats / stride);
+      const positionX = propertyMap.get('x');
+      const positionY = propertyMap.get('y');
+      const positionZ = propertyMap.get('z');
+      if (!positionX || !positionY || !positionZ) {
+        throw new Error('PLY vertex properties x/y/z are required');
+      }
+
+      const colorDc0 = propertyMap.get('f_dc_0');
+      const colorDc1 = propertyMap.get('f_dc_1');
+      const colorDc2 = propertyMap.get('f_dc_2');
+      const colorRed = propertyMap.get('red') ?? propertyMap.get('r');
+      const colorGreen = propertyMap.get('green') ?? propertyMap.get('g');
+      const colorBlue = propertyMap.get('blue') ?? propertyMap.get('b');
+      const hasShColor = Boolean(colorDc0 && colorDc1 && colorDc2);
+      const hasRgbColor = Boolean(colorRed && colorGreen && colorBlue);
+
+      const stride = Math.max(1, Math.ceil(vertexCount / MAX_FALLBACK_POINTS));
+      const sampleCount = Math.ceil(vertexCount / stride);
       const positions = new Float32Array(sampleCount * 3);
       const colors = new Float32Array(sampleCount * 3);
+      const view = new DataView(
+        bytes.buffer,
+        bytes.byteOffset + dataOffset,
+        vertexCount * vertexStrideBytes,
+      );
       let writeIndex = 0;
 
-      reader.parseSplats(
-        (
-          index: number,
-          x: number,
-          y: number,
-          z: number,
-          _scaleX: number,
-          _scaleY: number,
-          _scaleZ: number,
-          _quatX: number,
-          _quatY: number,
-          _quatZ: number,
-          _quatW: number,
-          _opacity: number,
-          r: number,
-          g: number,
-          b: number,
-        ) => {
-          if (index % stride !== 0) {
-            return;
-          }
-
-          if (writeIndex >= sampleCount) {
-            return;
-          }
+      for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
+        if (vertexIndex % stride === 0 && writeIndex < sampleCount) {
+          const vertexOffset = vertexIndex * vertexStrideBytes;
+          const x = readScalar(
+            view,
+            vertexOffset + positionX.offset,
+            positionX.type,
+          );
+          const y = readScalar(
+            view,
+            vertexOffset + positionY.offset,
+            positionY.type,
+          );
+          const z = readScalar(
+            view,
+            vertexOffset + positionZ.offset,
+            positionZ.type,
+          );
 
           const base = writeIndex * 3;
           positions[base] = x;
           positions[base + 1] = y;
           positions[base + 2] = z;
-          colors[base] = clamp(r, 0, 1);
-          colors[base + 1] = clamp(g, 0, 1);
-          colors[base + 2] = clamp(b, 0, 1);
+
+          if (hasShColor) {
+            const rawR = readScalar(
+              view,
+              vertexOffset + (colorDc0 as VertexProperty).offset,
+              (colorDc0 as VertexProperty).type,
+            );
+            const rawG = readScalar(
+              view,
+              vertexOffset + (colorDc1 as VertexProperty).offset,
+              (colorDc1 as VertexProperty).type,
+            );
+            const rawB = readScalar(
+              view,
+              vertexOffset + (colorDc2 as VertexProperty).offset,
+              (colorDc2 as VertexProperty).type,
+            );
+            colors[base] = clamp(0.5 + SH_C0 * rawR, 0, 1);
+            colors[base + 1] = clamp(0.5 + SH_C0 * rawG, 0, 1);
+            colors[base + 2] = clamp(0.5 + SH_C0 * rawB, 0, 1);
+          } else if (hasRgbColor) {
+            const rawR = readScalar(
+              view,
+              vertexOffset + (colorRed as VertexProperty).offset,
+              (colorRed as VertexProperty).type,
+            );
+            const rawG = readScalar(
+              view,
+              vertexOffset + (colorGreen as VertexProperty).offset,
+              (colorGreen as VertexProperty).type,
+            );
+            const rawB = readScalar(
+              view,
+              vertexOffset + (colorBlue as VertexProperty).offset,
+              (colorBlue as VertexProperty).type,
+            );
+            const normalizedR = rawR > 1 ? rawR / 255 : rawR;
+            const normalizedG = rawG > 1 ? rawG / 255 : rawG;
+            const normalizedB = rawB > 1 ? rawB / 255 : rawB;
+            colors[base] = clamp(normalizedR, 0, 1);
+            colors[base + 1] = clamp(normalizedG, 0, 1);
+            colors[base + 2] = clamp(normalizedB, 0, 1);
+          } else {
+            colors[base] = 1;
+            colors[base + 1] = 1;
+            colors[base + 2] = 1;
+          }
           writeIndex += 1;
-        },
-      );
+        }
+      }
 
       if (writeIndex === 0) {
-        throw new Error('No splats sampled from PLY');
+        throw new Error('No vertices sampled from PLY');
       }
 
       const finalPositions =
@@ -366,7 +530,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       const deltaTime = Math.max(0, (timeMs - previousFrameTime) / 1000);
       previousFrameTime = timeMs;
 
-      if (loadedSplat || loadedPoints) {
+      if (loadedPoints) {
         if (!hasManualOrbitInput) {
           orbitYaw += deltaTime * 0.16;
         }
@@ -381,27 +545,6 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         );
         camera.lookAt(orbitTarget);
         camera.updateMatrixWorld();
-
-        if (loadedSplat) {
-          try {
-            loadedSplat.update({
-              time: timeMs / 1000,
-              deltaTime,
-              viewToWorld: camera.matrixWorld,
-              globalEdits: [],
-            });
-          } catch {
-            // Spark update failed – remove the mesh so the loop can
-            // continue rendering any fallback content without retrying.
-            scene.remove(loadedSplat);
-            try {
-              loadedSplat.dispose();
-            } catch {
-              // best-effort disposal
-            }
-            loadedSplat = null;
-          }
-        }
       }
 
       renderer.render(scene, camera);
@@ -415,104 +558,32 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       setIsViewerReady(false);
 
       try {
-        const sparkModule = (await import(
-          '@sparkjsdev/spark'
-        )) as SparkModuleLike;
         const bytesFromMain = await window.electron.folder.getSplatBytes(
           splat.path,
         );
         const splatBytes = toUint8Array(bytesFromMain);
-        let sparkError: unknown = null;
+        if (!splatBytes) {
+          throw new Error('No .ply bytes available');
+        }
 
-        try {
-          const mesh = new sparkModule.SplatMesh(
-            splatBytes
-              ? {
-                  fileBytes: splatBytes,
-                  fileType: sparkModule.SplatFileType.PLY,
-                  fileName: splat.name,
-                }
-              : {
-                  url: splat.url,
-                  fileName: splat.name,
-                },
-          ) as SparkSplatMesh;
-          await mesh.initialized;
-
-          if (isDisposed) {
-            mesh.dispose();
-            return;
+        const points = createPointCloud(splatBytes);
+        if (isDisposed) {
+          const pointsMaterial = points.material;
+          points.geometry.dispose();
+          if (pointsMaterial instanceof THREE.Material) {
+            pointsMaterial.dispose();
           }
-
-          // Verify the mesh can actually render before committing to it.
-          // Some environments allow WASM init but fail at runtime.
-          mesh.update({
-            time: 0,
-            deltaTime: 0,
-            viewToWorld: camera.matrixWorld,
-            globalEdits: [],
-          });
-
-          loadedSplat = mesh;
-          scene.add(mesh);
-
-          try {
-            applyOrbitFromBounds(mesh.getBoundingBox(true));
-          } catch {
-            // Keep default camera framing when Spark cannot report bounds.
-          }
-
-          setIsViewerReady(true);
           return;
-        } catch (error) {
-          sparkError = error;
         }
 
-        if (splatBytes) {
-          try {
-            const points = await createPointFallback(sparkModule, splatBytes);
+        loadedPoints = points;
+        scene.add(points);
 
-            if (isDisposed) {
-              const pointsMaterial = points.material;
-              points.geometry.dispose();
-              if (pointsMaterial instanceof THREE.Material) {
-                pointsMaterial.dispose();
-              }
-              return;
-            }
-
-            loadedPoints = points;
-            scene.add(points);
-
-            const pointBounds = points.userData.bounds as
-              | THREE.Box3
-              | undefined;
-            if (pointBounds) {
-              applyOrbitFromBounds(pointBounds);
-            }
-
-            setLoadInfo(
-              'Spark could not render this file. Showing simplified point-cloud preview.',
-            );
-            setIsViewerReady(true);
-            return;
-          } catch (fallbackError) {
-            if (!isDisposed) {
-              const sparkMessage = toErrorMessage(sparkError);
-              const fallbackMessage = toErrorMessage(fallbackError);
-              setLoadError(
-                `Unable to render this \`.ply\`. Spark: ${sparkMessage}. Fallback: ${fallbackMessage}.`,
-              );
-            }
-            return;
-          }
+        const pointBounds = points.userData.bounds as THREE.Box3 | undefined;
+        if (pointBounds) {
+          applyOrbitFromBounds(pointBounds);
         }
-
-        if (!isDisposed) {
-          setLoadError(
-            `Unable to render this \`.ply\`: ${toErrorMessage(sparkError)}.`,
-          );
-        }
+        setIsViewerReady(true);
       } catch (error) {
         if (!isDisposed) {
           setLoadError(
@@ -524,7 +595,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
 
     loadSplat().catch(() => {
       if (!isDisposed) {
-        setLoadError('Unable to render this `.ply` with Spark.');
+        setLoadError('Unable to render this `.ply`.');
       }
     });
 
@@ -538,11 +609,6 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       renderer.domElement.removeEventListener('pointercancel', onPointerUp);
       renderer.domElement.removeEventListener('wheel', onWheel);
       renderer.domElement.removeEventListener('contextmenu', onContextMenu);
-
-      if (loadedSplat) {
-        scene.remove(loadedSplat);
-        loadedSplat.dispose();
-      }
 
       if (loadedPoints) {
         scene.remove(loadedPoints);
