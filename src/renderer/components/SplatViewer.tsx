@@ -917,16 +917,18 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         camera.lookAt(orbitTarget);
         camera.updateMatrixWorld();
 
-        // GPGPU update
-        gpgpuState.particlesVariable.material.uniforms.uTime.value =
-          elapsedTime;
-        gpgpuState.particlesVariable.material.uniforms.uDeltaTime.value =
-          deltaTime;
-        gpgpuState.gpgpu.compute();
-        gpgpuState.material.uniforms.uParticlesTexture.value =
-          gpgpuState.gpgpu.getCurrentRenderTarget(
-            gpgpuState.particlesVariable,
-          ).texture;
+        if (gpgpuState) {
+          // GPGPU update
+          gpgpuState.particlesVariable.material.uniforms.uTime.value =
+            elapsedTime;
+          gpgpuState.particlesVariable.material.uniforms.uDeltaTime.value =
+            deltaTime;
+          gpgpuState.gpgpu.compute();
+          gpgpuState.material.uniforms.uParticlesTexture.value =
+            gpgpuState.gpgpu.getCurrentRenderTarget(
+              gpgpuState.particlesVariable,
+            ).texture;
+        }
       }
 
       renderer.render(scene, camera);
