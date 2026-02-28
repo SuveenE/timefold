@@ -77,8 +77,8 @@ export default function ImageCardModal({
               <dd>{formatCapturedAt(image.capturedAt)}</dd>
             </div>
             <div>
-              <dt>Location</dt>
-              <dd>{image.location?.trim() || 'Unknown location'}</dd>
+              <dt>Country</dt>
+              <dd>{image.country?.trim() || 'Unknown country'}</dd>
             </div>
           </dl>
 
