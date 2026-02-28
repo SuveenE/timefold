@@ -53,26 +53,17 @@ type TileStyle = CSSProperties & {
 type ExploreLayout = {
   x: number;
   y: number;
-  zStart: number;
-  zEnd: number;
+  z: number;
   width: number;
   rotation: number;
-  spin: number;
-  duration: number;
-  delay: number;
   opacity: number;
-  zIndex: number;
 };
 
 type ExploreCardStyle = CSSProperties & {
   '--ex-x': string;
   '--ex-y': string;
-  '--ex-z-start': string;
-  '--ex-z-end': string;
+  '--ex-z': string;
   '--ex-rotate': string;
-  '--ex-spin': string;
-  '--ex-duration': string;
-  '--ex-delay': string;
   '--ex-opacity': string;
 };
 
@@ -113,14 +104,6 @@ type ImageCardModalProps = {
   onClose: () => void;
 };
 
-type CameraState = {
-  x: number;
-  y: number;
-  rotateX: number;
-  rotateY: number;
-  zoom: number;
-};
-
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
@@ -129,14 +112,10 @@ const CLOUD_DRAG_ROTATION_PER_PIXEL = 0.18;
 const CLOUD_ZOOM_MIN = -520;
 const CLOUD_ZOOM_MAX = 920;
 const CLOUD_ZOOM_PER_WHEEL = 0.72;
-
-const INITIAL_CAMERA: CameraState = {
-  x: 0,
-  y: 0,
-  rotateX: -8,
-  rotateY: 18,
-  zoom: -180,
-};
+const EXPLORE_DRAG_ROTATION_PER_PIXEL = 0.18;
+const EXPLORE_ZOOM_MIN = -520;
+const EXPLORE_ZOOM_MAX = 920;
+const EXPLORE_ZOOM_PER_WHEEL = 0.72;
 
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
@@ -234,26 +213,24 @@ const createExploreLayout = (
   const random = createRandom(
     createSeed(`explore:${seedKey}:${index}:${total}`),
   );
-  const theta = random() * Math.PI * 2;
-  const radius = 170 + random() ** 0.8 * 520;
-  const ovalStretch = 0.64 + random() * 0.28;
-  const spreadOffset = (index / Math.max(total, 1)) * Math.PI * 0.24;
-  const depthBase = (random() - 0.5) * 760;
-  const depthTravel = 210 + random() * 380;
-  const perspectiveHint = clamp((depthBase + 760) / 1520, 0, 1);
+  const safeTotal = Math.max(total, 1);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const unitY = 1 - ((index + 0.5) / safeTotal) * 2;
+  const radial = Math.sqrt(Math.max(0, 1 - unitY * unitY));
+  const theta = goldenAngle * index + (random() - 0.5) * 0.18;
+  const sphereRadius = 330 + (random() - 0.5) * 70;
+  const x = Math.cos(theta) * radial * sphereRadius + (random() - 0.5) * 18;
+  const y = unitY * sphereRadius * 1.02 + (random() - 0.5) * 22;
+  const z = Math.sin(theta) * radial * sphereRadius + (random() - 0.5) * 18;
+  const depthHint = clamp((z + sphereRadius) / (sphereRadius * 2), 0, 1);
 
   return {
-    x: Math.cos(theta + spreadOffset) * radius,
-    y: Math.sin(theta * 1.08 + spreadOffset) * radius * ovalStretch,
-    zStart: depthBase - depthTravel * 0.5,
-    zEnd: depthBase + depthTravel * 0.5,
-    width: 92 + random() * 132 + perspectiveHint * 42,
+    x,
+    y,
+    z,
+    width: 92 + random() * 132 + depthHint * 26,
     rotation: 0,
-    spin: 0,
-    duration: 14 + random() * 18,
-    delay: random() * 20,
-    opacity: clamp(0.52 + perspectiveHint * 0.48, 0.44, 1),
-    zIndex: 10 + Math.round(perspectiveHint * 250),
+    opacity: clamp(0.62 + depthHint * 0.35, 0.5, 1),
   };
 };
 
@@ -747,14 +724,21 @@ function Home({
 
 function Explore({ images, onImageSelect }: ExploreProps) {
   const navigate = useNavigate();
-  const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA);
   const [isDragging, setIsDragging] = useState(false);
   const [mode, setMode] = useState<ExploreMode>('free');
-  const dragState = useRef({
-    active: false,
+  const exploreWorldRef = useRef<HTMLDivElement | null>(null);
+  const motion = useRef({
+    dragging: false,
     pointerId: -1,
     lastX: 0,
-    lastY: 0,
+    lastPointerTime: 0,
+    lastFrameTime: 0,
+    position: 0,
+    target: 0,
+    velocity: 0,
+    zoom: 0,
+    zoomTarget: 0,
+    rafId: 0,
   });
 
   const exploreItems = useMemo(() => {
@@ -819,25 +803,99 @@ function Explore({ images, onImageSelect }: ExploreProps) {
       });
   }, [images]);
 
-  const worldStyle = useMemo((): CSSProperties => {
-    return {
-      transform: `translate3d(${camera.x}px, ${camera.y}px, ${camera.zoom}px) rotateX(${camera.rotateX}deg) rotateY(${camera.rotateY}deg)`,
-    };
-  }, [camera]);
+  const renderExploreState = useCallback(
+    (rotationDeg: number, zoomDepth: number) => {
+      const worldNode = exploreWorldRef.current;
+
+      if (!worldNode) {
+        return;
+      }
+
+      const rotation = `${rotationDeg.toFixed(2)}deg`;
+      const zoomValue = `${zoomDepth.toFixed(2)}px`;
+      worldNode.style.setProperty('--ex-world-rotation-y', rotation);
+      worldNode.style.setProperty('--ex-world-zoom-z', zoomValue);
+      worldNode.style.transform = `translate3d(0, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
+    },
+    [],
+  );
+
+  const runFrame = (timestamp: number) => {
+    const currentMotion = motion.current;
+
+    if (currentMotion.lastFrameTime === 0) {
+      currentMotion.lastFrameTime = timestamp;
+    }
+
+    const elapsed = clamp(timestamp - currentMotion.lastFrameTime, 8, 34);
+    currentMotion.lastFrameTime = timestamp;
+    const frameFactor = elapsed / 16.667;
+
+    if (!currentMotion.dragging) {
+      currentMotion.target += currentMotion.velocity * elapsed;
+      currentMotion.velocity *= 0.9 ** frameFactor;
+    }
+
+    const zoomFollow = 1 - 0.2 ** frameFactor;
+    currentMotion.zoom +=
+      (currentMotion.zoomTarget - currentMotion.zoom) * zoomFollow;
+
+    const rotationFollow = 1 - 0.2 ** frameFactor;
+    currentMotion.position +=
+      (currentMotion.target - currentMotion.position) * rotationFollow;
+
+    if (Math.abs(currentMotion.position) > 1080) {
+      const turns = Math.trunc(currentMotion.position / 360);
+      const normalizedOffset = turns * 360;
+      currentMotion.position -= normalizedOffset;
+      currentMotion.target -= normalizedOffset;
+    }
+
+    renderExploreState(currentMotion.position, currentMotion.zoom);
+
+    const shouldContinue =
+      currentMotion.dragging ||
+      Math.abs(currentMotion.target - currentMotion.position) > 0.04 ||
+      Math.abs(currentMotion.velocity) > 0.002 ||
+      Math.abs(currentMotion.zoomTarget - currentMotion.zoom) > 0.08;
+
+    if (shouldContinue) {
+      currentMotion.rafId = window.requestAnimationFrame(runFrame);
+      return;
+    }
+
+    currentMotion.target = currentMotion.position;
+    currentMotion.zoom = currentMotion.zoomTarget;
+    currentMotion.velocity = 0;
+    currentMotion.lastFrameTime = 0;
+    currentMotion.rafId = 0;
+    renderExploreState(currentMotion.position, currentMotion.zoom);
+  };
+
+  const startAnimation = () => {
+    const currentMotion = motion.current;
+
+    if (currentMotion.rafId !== 0) {
+      return;
+    }
+
+    currentMotion.rafId = window.requestAnimationFrame(runFrame);
+  };
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (mode !== 'free') {
       return;
     }
 
-    dragState.current = {
-      active: true,
-      pointerId: event.pointerId,
-      lastX: event.clientX,
-      lastY: event.clientY,
-    };
+    const currentMotion = motion.current;
+    currentMotion.dragging = true;
+    currentMotion.pointerId = event.pointerId;
+    currentMotion.lastX = event.clientX;
+    currentMotion.lastPointerTime = event.timeStamp;
+    currentMotion.velocity = 0;
     setIsDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
+    startAnimation();
   };
 
   const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -845,28 +903,29 @@ function Explore({ images, onImageSelect }: ExploreProps) {
       return;
     }
 
+    const currentMotion = motion.current;
+
     if (
-      !dragState.current.active ||
-      dragState.current.pointerId !== event.pointerId
+      !currentMotion.dragging ||
+      currentMotion.pointerId !== event.pointerId
     ) {
       return;
     }
 
-    const deltaX = event.clientX - dragState.current.lastX;
-    const deltaY = event.clientY - dragState.current.lastY;
+    const deltaX = event.clientX - currentMotion.lastX;
+    const elapsedPointer = clamp(
+      event.timeStamp - currentMotion.lastPointerTime,
+      8,
+      42,
+    );
+    const deltaRotation = deltaX * EXPLORE_DRAG_ROTATION_PER_PIXEL;
 
-    dragState.current.lastX = event.clientX;
-    dragState.current.lastY = event.clientY;
+    currentMotion.lastX = event.clientX;
+    currentMotion.lastPointerTime = event.timeStamp;
+    currentMotion.target += deltaRotation;
+    currentMotion.velocity = deltaRotation / elapsedPointer;
 
-    setCamera((current) => {
-      return {
-        x: clamp(current.x + deltaX, -360, 360),
-        y: clamp(current.y + deltaY, -280, 280),
-        rotateX: clamp(current.rotateX - deltaY * 0.08, -52, 52),
-        rotateY: clamp(current.rotateY + deltaX * 0.08, -62, 62),
-        zoom: current.zoom,
-      };
-    });
+    startAnimation();
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
@@ -874,13 +933,16 @@ function Explore({ images, onImageSelect }: ExploreProps) {
       return;
     }
 
-    if (dragState.current.pointerId !== event.pointerId) {
+    const currentMotion = motion.current;
+
+    if (currentMotion.pointerId !== event.pointerId) {
       return;
     }
 
-    dragState.current.active = false;
-    dragState.current.pointerId = -1;
+    currentMotion.dragging = false;
+    currentMotion.pointerId = -1;
     setIsDragging(false);
+    startAnimation();
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -893,14 +955,46 @@ function Explore({ images, onImageSelect }: ExploreProps) {
     }
 
     event.preventDefault();
-
-    setCamera((current) => {
-      return {
-        ...current,
-        zoom: clamp(current.zoom - event.deltaY * 0.55, -900, 260),
-      };
-    });
+    const currentMotion = motion.current;
+    currentMotion.zoomTarget = clamp(
+      currentMotion.zoomTarget - event.deltaY * EXPLORE_ZOOM_PER_WHEEL,
+      EXPLORE_ZOOM_MIN,
+      EXPLORE_ZOOM_MAX,
+    );
+    startAnimation();
   };
+
+  useEffect(() => {
+    let rafId = 0;
+
+    if (mode !== 'free') {
+      const currentMotion = motion.current;
+      currentMotion.dragging = false;
+      currentMotion.pointerId = -1;
+      setIsDragging(false);
+    } else {
+      rafId = window.requestAnimationFrame(() => {
+        const currentMotion = motion.current;
+        renderExploreState(currentMotion.position, currentMotion.zoom);
+      });
+    }
+
+    return () => {
+      if (rafId !== 0) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, [exploreItems, mode, renderExploreState]);
+
+  useEffect(() => {
+    const currentMotion = motion.current;
+
+    return () => {
+      if (currentMotion.rafId !== 0) {
+        window.cancelAnimationFrame(currentMotion.rafId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -980,21 +1074,16 @@ function Explore({ images, onImageSelect }: ExploreProps) {
 
         {images.length > 0 && mode === 'free' ? (
           <div className="explore-scene">
-            <div className="explore-world" style={worldStyle}>
+            <div className="explore-world" ref={exploreWorldRef}>
               {exploreItems.map(({ image, layout }) => {
                 const cardStyle: ExploreCardStyle = {
                   left: '50%',
                   top: '50%',
                   width: `${layout.width}px`,
-                  zIndex: layout.zIndex,
                   '--ex-x': `${layout.x}px`,
                   '--ex-y': `${layout.y}px`,
-                  '--ex-z-start': `${layout.zStart}px`,
-                  '--ex-z-end': `${layout.zEnd}px`,
+                  '--ex-z': `${layout.z}px`,
                   '--ex-rotate': `${layout.rotation}deg`,
-                  '--ex-spin': `${layout.spin}deg`,
-                  '--ex-duration': `${layout.duration}s`,
-                  '--ex-delay': `-${layout.delay}s`,
                   '--ex-opacity': `${layout.opacity}`,
                 };
 
@@ -1332,12 +1421,10 @@ function AppRoutes() {
     setSplatLookupError(null);
   }, [activeFolder]);
 
-  const loadFolderImages = async (
-    folderPath: string,
-    metadataFolderPath?: string,
-  ) => {
-    setIsLoading(true);
-    setErrorMessage(null);
+  const loadFolderImages = useCallback(
+    async (folderPath: string, metadataFolderPath?: string) => {
+      setIsLoading(true);
+      setErrorMessage(null);
 
       try {
         const folderImages = await window.electron.folder.listImages(
