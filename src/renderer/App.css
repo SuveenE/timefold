@@ -74,6 +74,8 @@ body {
   align-items: center;
   gap: 16px;
   min-width: 0;
+}
+
 .library-header {
   position: relative;
   z-index: 20;
@@ -499,6 +501,65 @@ body {
   padding-inline: 12px;
 }
 
+.settings-screen {
+  padding-bottom: 0;
+}
+
+.settings-back {
+  justify-self: end;
+}
+
+.settings-body {
+  position: relative;
+  z-index: 5;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.settings-form {
+  width: min(680px, calc(100% - 12px));
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 20px;
+  background: var(--dock-bg);
+  color: var(--ink);
+  border: 1px solid var(--dock-border);
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.settings-field {
+  display: grid;
+  gap: 8px;
+  font-size: 0.94rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.settings-field input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(22, 22, 22, 0.2);
+  background: rgba(255, 255, 255, 0.9);
+  color: #151515;
+  font: inherit;
+  padding: 12px 14px;
+}
+
+.settings-field input::placeholder {
+  color: rgba(56, 56, 56, 0.56);
+}
+
+.settings-field input:focus-visible {
+  outline: 2px solid rgba(35, 100, 255, 0.45);
+  outline-offset: 2px;
+}
+
 @keyframes orbit-around {
   0% {
     transform: rotate(0deg) translate(var(--orbit-x), var(--orbit-y));
@@ -584,6 +645,8 @@ body {
 
   .dock-actions {
     width: 100%;
+  }
+
   .library-header {
     grid-template-columns: auto 1fr;
     padding: 14px 16px;
@@ -624,6 +687,14 @@ body {
   .explore-stage {
     margin-inline: 12px;
     border-radius: 20px;
+  }
+
+  .settings-body {
+    padding: 14px;
+  }
+
+  .settings-form {
+    padding: 18px;
   }
 }
 

@@ -1,5 +1,6 @@
 import type {
   CSSProperties,
+  ChangeEvent,
   PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
 } from 'react';
@@ -90,6 +91,17 @@ type HomeProps = {
 
 type ExploreProps = {
   images: ListedImage[];
+};
+
+type SettingsValues = {
+  photoAlbumLocation: string;
+  metadataLocation: string;
+  yourName: string;
+};
+
+type SettingsProps = {
+  settings: SettingsValues;
+  onSettingsChange: (nextSettings: SettingsValues) => void;
 };
 
 type CameraState = {
@@ -354,7 +366,8 @@ function Home({
         <button
           type="button"
           className="header-utility"
-          aria-label="Open library controls"
+          aria-label="Open settings"
+          onClick={() => navigate('/settings')}
         >
           <span className="orbit-icon" aria-hidden="true" />
         </button>
@@ -450,14 +463,15 @@ function Home({
             <button
               type="button"
               className="header-utility"
-              aria-label="Open library controls"
+              aria-label="Open settings"
+              onClick={() => navigate('/settings')}
             >
               <span className="orbit-icon" aria-hidden="true" />
             </button>
             <button
               type="button"
               className="ghost-button"
-              onClick={handleReload}
+              onClick={onReload}
               disabled={!activeFolder || isLoading}
             >
               reload
@@ -465,7 +479,7 @@ function Home({
             <button
               type="button"
               className="primary-button"
-              onClick={handleFolderSelect}
+              onClick={onSelectFolder}
               disabled={isSelecting}
             >
               {isSelecting ? 'opening...' : 'choose folder'}
@@ -489,6 +503,13 @@ function Home({
         </div>
 
         <div className="dock-actions">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => navigate('/settings')}
+          >
+            settings
+          </button>
           {images.length > 0 && (
             <button
               type="button"
@@ -723,6 +744,90 @@ function Explore({ images }: ExploreProps) {
   );
 }
 
+function Settings({ settings, onSettingsChange }: SettingsProps) {
+  const navigate = useNavigate();
+
+  const setField =
+    (field: keyof SettingsValues) => (event: ChangeEvent<HTMLInputElement>) => {
+      onSettingsChange({
+        ...settings,
+        [field]: event.target.value,
+      });
+    };
+
+  return (
+    <main className="gallery-screen settings-screen">
+      <div className="nebula" aria-hidden="true" />
+      <div className="grain" aria-hidden="true" />
+
+      <header className="library-header">
+        <div className="window-controls" aria-hidden="true">
+          <span className="traffic-dot traffic-dot-close" />
+          <span className="traffic-dot traffic-dot-minimize" />
+          <span className="traffic-dot traffic-dot-expand" />
+        </div>
+
+        <div className="header-breadcrumb" aria-label="Current section">
+          <span className="header-breadcrumb-primary">Settings</span>
+          <span className="header-breadcrumb-separator">/</span>
+          <span className="header-breadcrumb-secondary">Profile</span>
+        </div>
+
+        <button
+          type="button"
+          className="ghost-button settings-back"
+          onClick={() => navigate('/')}
+        >
+          back
+        </button>
+      </header>
+
+      <section className="settings-body">
+        <form
+          className="settings-form"
+          onSubmit={(event) => event.preventDefault()}
+        >
+          <label className="settings-field" htmlFor="photo-album-location">
+            Photo album location
+            <input
+              id="photo-album-location"
+              type="text"
+              value={settings.photoAlbumLocation}
+              onChange={setField('photoAlbumLocation')}
+              placeholder="/Users/you/Pictures/Album"
+              autoComplete="off"
+            />
+          </label>
+
+          <label className="settings-field" htmlFor="metadata-location">
+            Metadata location
+            <input
+              id="metadata-location"
+              type="text"
+              value={settings.metadataLocation}
+              onChange={setField('metadataLocation')}
+              placeholder="/Users/you/Documents/photo-metadata.json"
+              autoComplete="off"
+            />
+          </label>
+
+          <label className="settings-field" htmlFor="your-name">
+            Your name
+            <input
+              id="your-name"
+              type="text"
+              value={settings.yourName}
+              onChange={setField('yourName')}
+              placeholder="Your name"
+              autoComplete="name"
+            />
+          </label>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 function AppRoutes() {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [recentFolders, setRecentFolders] = useState<RecentFolder[]>([]);
@@ -730,6 +835,11 @@ function AppRoutes() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [settings, setSettings] = useState<SettingsValues>({
+    photoAlbumLocation: '',
+    metadataLocation: '',
+    yourName: '',
+  });
 
   const loadFolderImages = async (folderPath: string) => {
     setIsLoading(true);
@@ -812,6 +922,12 @@ function AppRoutes() {
         }
       />
       <Route path="/explore" element={<Explore images={images} />} />
+      <Route
+        path="/settings"
+        element={
+          <Settings settings={settings} onSettingsChange={setSettings} />
+        }
+      />
     </Routes>
   );
 }
