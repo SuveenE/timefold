@@ -123,8 +123,8 @@ const SETTINGS_STORAGE_KEY = 'timefold.settings';
 const LAST_ACTIVE_FOLDER_STORAGE_KEY = 'timefold.lastActiveFolder';
 const CLOUD_DRAG_ROTATION_PER_PIXEL = 0.18;
 const CLOUD_ZOOM_MIN = 0;
-const CLOUD_ZOOM_MAX = 320;
-const CLOUD_ZOOM_PER_WHEEL = 0.42;
+const CLOUD_ZOOM_MAX = 760;
+const CLOUD_ZOOM_PER_WHEEL = 0.65;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -394,8 +394,8 @@ function Home({
   const updateTileDepthStyles = useCallback(
     (rotationDeg: number, zoomDepth: number) => {
       const rotationRad = (rotationDeg * Math.PI) / 180;
-      const focusPlane = 235 - zoomDepth * 0.9;
-      const focusSpread = 190;
+      const focusPlane = -220 - zoomDepth * 0.92;
+      const focusSpread = 210;
 
       cloudItemsRef.current.forEach(({ image, layout }) => {
         const tileNode = tileNodeRefs.current.get(image.path);
@@ -406,32 +406,35 @@ function Home({
 
         const ringAngleRad = (layout.ringAngle * Math.PI) / 180;
         const worldZ =
-          Math.cos(ringAngleRad + rotationRad) * layout.ringRadius - zoomDepth;
-        const depthNorm = clamp((worldZ + 520) / 1040, 0, 1);
+          -Math.cos(ringAngleRad + rotationRad) * layout.ringRadius - zoomDepth;
+        const nearFactor = clamp((420 - worldZ) / 840, 0, 1);
         const focus = clamp(
           1 - Math.abs(worldZ - focusPlane) / focusSpread,
           0,
           1,
         );
-        const nearFade =
-          worldZ > 340 ? clamp(1 - (worldZ - 340) / 220, 0.22, 1) : 1;
+        const farFade =
+          worldZ > 220 ? clamp(1 - (worldZ - 220) / 520, 0.25, 1) : 1;
+        const closeFade =
+          worldZ < -620 ? clamp(1 - (-620 - worldZ) / 260, 0.3, 1) : 1;
         const visualOpacity = clamp(
           layout.opacity *
             (0.38 + focus * 0.62) *
-            (0.56 + depthNorm * 0.44) *
-            nearFade,
-          0.16,
+            (0.48 + nearFactor * 0.52) *
+            farFade *
+            closeFade,
+          0.12,
           1,
         );
         const visualBlur = clamp(
-          layout.blur + (1 - focus) * 1.25 + (1 - depthNorm) * 0.34,
+          layout.blur + (1 - focus) * 1.45 + (1 - nearFactor) * 0.55,
           0,
-          2.8,
+          3.4,
         );
         const depthScale = clamp(
-          0.92 + focus * 0.12 + depthNorm * 0.05 - (1 - nearFade) * 0.06,
-          0.84,
-          1.15,
+          0.9 + focus * 0.14 + nearFactor * 0.07,
+          0.82,
+          1.18,
         );
 
         tileNode.style.setProperty(
