@@ -350,6 +350,9 @@ if (process.env.NODE_ENV === 'production') {
 const isDebug =
   process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true';
 
+// In development Electron defaults the app name to "Electron" on macOS.
+app.setName('Timefold');
+
 if (isDebug) {
   require('electron-debug').default();
 }
