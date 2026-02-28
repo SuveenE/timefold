@@ -3,6 +3,7 @@ import * as THREE from 'three';
 // @ts-expect-error -- JS module exists at runtime; node16 resolution cannot find the types.
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer';
 import type { ImageSplat } from '../types/gallery';
+import SPARK_SPLAT_DEFINES from '../utils/sparkSplatDefines';
 
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
@@ -521,6 +522,75 @@ const parsePlyData = (
   return { positions: finalPositions, colors: finalColors, count: writeIndex };
 };
 
+type SparkSplatMesh = THREE.Object3D & {
+  initialized?: Promise<unknown>;
+  dispose?: () => void;
+  getBoundingBox?: (centersOnly?: boolean) => THREE.Box3;
+};
+
+type SparkModule = {
+  SplatMesh?: new (options?: {
+    fileBytes?: Uint8Array | ArrayBuffer;
+    fileName?: string;
+  }) => SparkSplatMesh;
+};
+
+let sparkModulePromise: Promise<SparkModule> | null = null;
+let sparkWasmDataFetchPatched = false;
+
+const patchSparkWasmDataFetch = () => {
+  if (sparkWasmDataFetchPatched) {
+    return;
+  }
+
+  const nativeFetch = window.fetch.bind(window);
+  const patchedFetch: typeof window.fetch = async (
+    input: Parameters<typeof window.fetch>[0],
+    init?: Parameters<typeof window.fetch>[1],
+  ) => {
+    let requestUrl = '';
+    if (typeof input === 'string') {
+      requestUrl = input;
+    } else if (input instanceof URL) {
+      requestUrl = input.toString();
+    } else {
+      requestUrl = input.url;
+    }
+    const dataPrefix = 'data:application/wasm;base64,';
+
+    if (requestUrl.startsWith(dataPrefix)) {
+      const base64 = requestUrl.slice(dataPrefix.length);
+      const binary = window.atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Response(bytes, {
+        headers: { 'Content-Type': 'application/wasm' },
+      });
+    }
+
+    return nativeFetch(input, init);
+  };
+
+  window.fetch = patchedFetch;
+  sparkWasmDataFetchPatched = true;
+};
+
+const loadSparkModule = async (): Promise<SparkModule> => {
+  patchSparkWasmDataFetch();
+  if (
+    typeof THREE.ShaderChunk.splatDefines !== 'string' ||
+    THREE.ShaderChunk.splatDefines.length === 0
+  ) {
+    THREE.ShaderChunk.splatDefines = SPARK_SPLAT_DEFINES;
+  }
+  if (!sparkModulePromise) {
+    sparkModulePromise = import('@sparkjsdev/spark') as Promise<SparkModule>;
+  }
+  return sparkModulePromise;
+};
+
 // ---------------------------------------------------------------------------
 // GPGPU particle system setup
 // ---------------------------------------------------------------------------
@@ -656,6 +726,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let animationFrameId = 0;
     let previousFrameTime = performance.now();
     let gpgpuState: GpgpuState | null = null;
+    let sparkMesh: SparkSplatMesh | null = null;
     const orbitTarget = new THREE.Vector3(0, 0, 0);
     let orbitRadius = 3.2;
     let orbitYaw = 0.42;
@@ -849,41 +920,70 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       try {
         const extension = getSplatExtension(splat.path);
 
-        if (extension === 'spz') {
-          throw new Error(
-            '`.spz` format is not yet supported. Use a `.ply` file instead.',
-          );
-        }
-
         const bytesFromMain = await window.electron.folder.getSplatBytes(
           splat.path,
         );
         const splatBytes = toUint8Array(bytesFromMain);
         if (!splatBytes) {
-          throw new Error('No `.ply` bytes available');
+          throw new Error('No splat bytes available');
         }
 
-        const { positions, colors, count } = parsePlyData(splatBytes);
+        if (extension === 'ply') {
+          const parsedData = parsePlyData(splatBytes);
+          const { positions, colors, count } = parsedData;
 
-        if (isDisposed) {
-          return;
+          if (isDisposed) {
+            return;
+          }
+
+          const state = setupGpgpuParticles(positions, colors, count, renderer);
+
+          if (isDisposed) {
+            state.points.geometry.dispose();
+            state.material.dispose();
+            state.gpgpu.dispose();
+            return;
+          }
+
+          gpgpuState = state;
+          state.points.rotation.x = Math.PI;
+          scene.add(state.points);
+          applyOrbitFromBounds(state.bounds);
+          setIsViewerReady(true);
+        } else if (extension === 'spz') {
+          setLoadInfo('Loading Spark renderer...');
+          const spark = await loadSparkModule();
+          if (typeof spark.SplatMesh !== 'function') {
+            throw new Error('Spark SplatMesh export is unavailable');
+          }
+
+          const mesh = new spark.SplatMesh({
+            fileBytes: splatBytes,
+            fileName: splat.name,
+          });
+          if (mesh.initialized) {
+            await mesh.initialized;
+          }
+
+          if (isDisposed) {
+            mesh.dispose?.();
+            return;
+          }
+
+          sparkMesh = mesh;
+          scene.add(mesh);
+          const sparkBounds =
+            typeof mesh.getBoundingBox === 'function'
+              ? mesh.getBoundingBox()
+              : new THREE.Box3().setFromObject(mesh);
+          applyOrbitFromBounds(sparkBounds);
+          setLoadInfo(null);
+          setIsViewerReady(true);
+        } else {
+          throw new Error(
+            `Unsupported splat format: .${extension || 'unknown'}`,
+          );
         }
-
-        const state = setupGpgpuParticles(positions, colors, count, renderer);
-
-        if (isDisposed) {
-          state.points.geometry.dispose();
-          state.material.dispose();
-          state.gpgpu.dispose();
-          return;
-        }
-
-        gpgpuState = state;
-        state.points.rotation.x = Math.PI;
-        scene.add(state.points);
-        applyOrbitFromBounds(state.bounds);
-
-        setIsViewerReady(true);
       } catch (error) {
         if (!isDisposed) {
           setLoadError(
@@ -915,6 +1015,10 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         gpgpuState.points.geometry.dispose();
         gpgpuState.material.dispose();
         gpgpuState.gpgpu.dispose();
+      }
+      if (sparkMesh) {
+        scene.remove(sparkMesh);
+        sparkMesh.dispose?.();
       }
 
       renderer.dispose();
