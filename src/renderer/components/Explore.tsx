@@ -21,6 +21,11 @@ import {
 const LOCATION_MAP_WIDTH = 980;
 const LOCATION_MAP_HEIGHT = 510;
 const TIME_GLOBE_RADIUS = 300;
+const TIME_CLUSTER_BASE_SPREAD = 14;
+const TIME_CLUSTER_SPIRAL_SPREAD = 20;
+const TIME_CLUSTER_COMPRESSION_MIN = 0.82;
+const EXPLORE_WORLD_BASE_OFFSET_X = -24;
+const EXPLORE_WORLD_BASE_OFFSET_Y = -18;
 const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
 const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
 
@@ -346,14 +351,17 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         const basis = buildTangentBasis(latitude, longitude);
         const clusterCompression = clamp(
           1 - Math.min(cluster.images.length, 18) * 0.018,
-          0.68,
+          TIME_CLUSTER_COMPRESSION_MIN,
           1,
         );
 
         return cluster.images.map((image, imageIndex) => {
           const angle = imageIndex * GOLDEN_ANGLE_RADIANS;
           const radialDistance =
-            8 + Math.sqrt(imageIndex + 1) * 12 * clusterCompression;
+            TIME_CLUSTER_BASE_SPREAD +
+            Math.sqrt(imageIndex + 1) *
+              TIME_CLUSTER_SPIRAL_SPREAD *
+              clusterCompression;
           const offsetEast = Math.cos(angle) * radialDistance;
           const offsetNorth = Math.sin(angle) * radialDistance;
           const x =
@@ -374,7 +382,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
               x,
               y,
               z,
-              width: 56 + depthHint * 24,
+              width: 50 + depthHint * 20,
               rotation: Math.sin(angle) * 4,
               opacity: clamp(0.48 + depthHint * 0.46, 0.42, 1),
             },
@@ -565,10 +573,13 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
       const rotation = `${effectiveRotationDeg.toFixed(2)}deg`;
       const finalZoom = zoomDepth + exploreFrame.fitZoom;
       const zoomValue = `${finalZoom.toFixed(2)}px`;
-      const offsetXValue = `${exploreFrame.offsetX.toFixed(2)}px`;
+      const offsetXValue = `${(
+        exploreFrame.offsetX + EXPLORE_WORLD_BASE_OFFSET_X
+      ).toFixed(2)}px`;
+      const offsetYValue = `${EXPLORE_WORLD_BASE_OFFSET_Y.toFixed(2)}px`;
       worldNode.style.setProperty('--ex-world-rotation-y', rotation);
       worldNode.style.setProperty('--ex-world-zoom-z', zoomValue);
-      worldNode.style.transform = `translate3d(${offsetXValue}, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
+      worldNode.style.transform = `translate3d(${offsetXValue}, ${offsetYValue}, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
     },
     [exploreFrame.fitZoom, exploreFrame.offsetX, mode],
   );
