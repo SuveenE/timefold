@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { ImageCardModalProps } from '../types/gallery';
 import { buildExpectedSplatName, formatCapturedAt } from '../utils/gallery';
 import SplatViewer from './SplatViewer';
@@ -10,6 +10,8 @@ export default function ImageCardModal({
   splatLookupError,
   onClose,
 }: ImageCardModalProps) {
+  const [isImageLoading, setIsImageLoading] = useState(true);
+
   useEffect(() => {
     if (!image) {
       return undefined;
@@ -27,6 +29,14 @@ export default function ImageCardModal({
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [image, onClose]);
+
+  useEffect(() => {
+    if (!image) {
+      return;
+    }
+
+    setIsImageLoading(true);
+  }, [image]);
 
   if (!image) {
     return null;
@@ -57,8 +67,22 @@ export default function ImageCardModal({
           close
         </button>
 
-        <div className="image-card-media">
-          <img src={image.url} alt={image.name} />
+        <div
+          className={`image-card-media ${
+            isImageLoading ? 'is-loading' : 'is-loaded'
+          }`}
+        >
+          {isImageLoading ? (
+            <span className="media-loading-indicator" aria-hidden="true">
+              Loading...
+            </span>
+          ) : null}
+          <img
+            src={image.url}
+            alt={image.name}
+            onLoad={() => setIsImageLoading(false)}
+            onError={() => setIsImageLoading(false)}
+          />
         </div>
 
         <section className="image-card-details">
