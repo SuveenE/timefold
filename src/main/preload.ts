@@ -3,6 +3,12 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
 export type Channels = 'ipc-example';
+export type ListedImage = {
+  name: string;
+  path: string;
+  url: string;
+  ext: string;
+};
 
 const electronHandler = {
   ipcRenderer: {
@@ -26,6 +32,11 @@ const electronHandler = {
     select() {
       return ipcRenderer.invoke('dialog:select-folder') as Promise<
         string | null
+      >;
+    },
+    listImages(folderPath: string) {
+      return ipcRenderer.invoke('folder:list-images', folderPath) as Promise<
+        ListedImage[]
       >;
     },
   },
