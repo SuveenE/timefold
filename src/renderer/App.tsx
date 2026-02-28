@@ -13,11 +13,6 @@ import {
 import type { ListedImage } from '../main/preload';
 import './App.css';
 
-type RecentFolder = {
-  name: string;
-  path: string;
-};
-
 type ClusterLayout = {
   left: number;
   top: number;
@@ -78,14 +73,12 @@ type ExploreCardStyle = CSSProperties & {
 
 type HomeProps = {
   activeFolder: string | null;
-  recentFolders: RecentFolder[];
   images: ListedImage[];
   isSelecting: boolean;
   isLoading: boolean;
   errorMessage: string | null;
   onSelectFolder: () => Promise<void>;
   onReload: () => Promise<void>;
-  onRecentFolder: (folderPath: string) => Promise<void>;
 };
 
 type ExploreProps = {
@@ -102,7 +95,6 @@ type CameraState = {
 
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
-const MAX_RECENT_FOLDERS = 4;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -155,17 +147,18 @@ const createClusterLayout = (
   const xJitter = (random() - 0.5) * 9;
   const yJitter = (random() - 0.5) * 11;
   const depth = random();
+  const orbitDuration = 14 + random() * 22;
 
   return {
     left: clamp(50 + Math.cos(angle) * radius + xJitter, 5, 95),
     top: clamp(46 + Math.sin(angle) * radius * 0.86 + yJitter, 8, 90),
     width: 56 + random() * 94 + depth * 35,
-    rotation: (random() - 0.5) * 32,
+    rotation: 0,
     orbitX: (random() - 0.5) * (14 + (1 - depth) * 34),
     orbitY: (random() - 0.5) * (12 + (1 - depth) * 24),
-    orbitDuration: 14 + random() * 22,
+    orbitDuration,
     orbitDelay: random() * 20,
-    counterDuration: 16 + random() * 20,
+    counterDuration: orbitDuration,
     bobX: (random() - 0.5) * 13,
     bobY: (random() - 0.5) * 16,
     bobDuration: 4 + random() * 8,
@@ -197,8 +190,8 @@ const createExploreLayout = (
     zStart: depthBase - depthTravel * 0.5,
     zEnd: depthBase + depthTravel * 0.5,
     width: 92 + random() * 132 + perspectiveHint * 42,
-    rotation: (random() - 0.5) * 32,
-    spin: (random() - 0.5) * 18,
+    rotation: 0,
+    spin: 0,
     duration: 14 + random() * 18,
     delay: random() * 20,
     opacity: clamp(0.52 + perspectiveHint * 0.48, 0.44, 1),
@@ -208,14 +201,12 @@ const createExploreLayout = (
 
 function Home({
   activeFolder,
-  recentFolders,
   images,
   isSelecting,
   isLoading,
   errorMessage,
   onSelectFolder,
   onReload,
-  onRecentFolder,
 }: HomeProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -277,6 +268,7 @@ function Home({
     filteredPool.length - filteredImages.length,
   );
   const failedPreviewCount = filteredImages.length - renderableImages.length;
+  const hasLoadedImages = images.length > 0 && !isLoading;
 
   const statusTitle = useMemo(() => {
     if (isLoading) {
@@ -432,32 +424,42 @@ function Home({
       </section>
 
       <footer className="control-dock">
-        <div className="dock-header-row">
-          <div className="dock-heading" aria-label="Current section">
-            <div className="window-controls" aria-hidden="true">
-              <span className="traffic-dot traffic-dot-close" />
-              <span className="traffic-dot traffic-dot-minimize" />
-              <span className="traffic-dot traffic-dot-expand" />
-            </div>
-            <div className="header-breadcrumb">
-              <span className="header-breadcrumb-primary">My Library</span>
-              <span className="header-breadcrumb-separator">/</span>
-              <span className="header-breadcrumb-secondary">Recent</span>
-            </div>
+        {images.length > 0 && (
+          <div className="dock-explore-row">
+            <button
+              type="button"
+              className={`ghost-button explore-button ${
+                hasLoadedImages ? 'highlighted' : ''
+              }`}
+              onClick={() => navigate('/explore')}
+              disabled={isLoading}
+            >
+              explore
+            </button>
+          </div>
+        )}
+
+        <div className="dock-controls-row">
+          <div className="chip-row">
+            {filterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                className={`chip ${activeFilter === chip.key ? 'active' : ''}`}
+                onClick={() => setActiveFilter(chip.key)}
+                disabled={chip.count === 0}
+              >
+                {chip.label}
+                <small>{chip.count}</small>
+              </button>
+            ))}
           </div>
 
           <div className="dock-actions">
             <button
               type="button"
-              className="header-utility"
-              aria-label="Open library controls"
-            >
-              <span className="orbit-icon" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
               className="ghost-button"
-              onClick={handleReload}
+              onClick={onReload}
               disabled={!activeFolder || isLoading}
             >
               reload
@@ -465,56 +467,12 @@ function Home({
             <button
               type="button"
               className="primary-button"
-              onClick={handleFolderSelect}
+              onClick={onSelectFolder}
               disabled={isSelecting}
             >
               {isSelecting ? 'opening...' : 'choose folder'}
             </button>
           </div>
-        </div>
-
-        <div className="chip-row">
-          {filterChips.map((chip) => (
-            <button
-              key={chip.key}
-              type="button"
-              className={`chip ${activeFilter === chip.key ? 'active' : ''}`}
-              onClick={() => setActiveFilter(chip.key)}
-              disabled={chip.count === 0}
-            >
-              {chip.label}
-              <small>{chip.count}</small>
-            </button>
-          ))}
-        </div>
-
-        <div className="dock-actions">
-          {images.length > 0 && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => navigate('/explore')}
-              disabled={isLoading}
-            >
-              explore
-            </button>
-          )}
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={onReload}
-            disabled={!activeFolder || isLoading}
-          >
-            reload
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={onSelectFolder}
-            disabled={isSelecting}
-          >
-            {isSelecting ? 'opening...' : 'choose folder'}
-          </button>
         </div>
 
         <section className="dock-meta">
@@ -523,6 +481,9 @@ function Home({
           </p>
           <p className="folder-path">
             {activeFolder || 'Select a local folder containing image files'}
+          </p>
+          <p className="folder-note">
+            App data related to this folder is saved in the same location.
           </p>
           {hiddenImageCount > 0 && (
             <p className="hint">
@@ -536,21 +497,6 @@ function Home({
             </p>
           )}
         </section>
-
-        {recentFolders.length > 0 && (
-          <div className="recent-row">
-            {recentFolders.map((folder) => (
-              <button
-                key={folder.path}
-                type="button"
-                className="recent-folder"
-                onClick={() => onRecentFolder(folder.path)}
-              >
-                {folder.name}
-              </button>
-            ))}
-          </div>
-        )}
       </footer>
     </main>
   );
@@ -725,7 +671,6 @@ function Explore({ images }: ExploreProps) {
 
 function AppRoutes() {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
-  const [recentFolders, setRecentFolders] = useState<RecentFolder[]>([]);
   const [images, setImages] = useState<ListedImage[]>([]);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -763,26 +708,10 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
-      setRecentFolders((previous) => {
-        const updated = previous.filter(
-          (folder) => folder.path !== selectedFolder,
-        );
-        updated.unshift({
-          name: getFolderName(selectedFolder),
-          path: selectedFolder,
-        });
-        return updated.slice(0, MAX_RECENT_FOLDERS);
-      });
-
       await loadFolderImages(selectedFolder);
     } finally {
       setIsSelecting(false);
     }
-  };
-
-  const handleRecentFolder = async (folderPath: string) => {
-    setActiveFolder(folderPath);
-    await loadFolderImages(folderPath);
   };
 
   const handleReload = async () => {
@@ -800,14 +729,12 @@ function AppRoutes() {
         element={
           <Home
             activeFolder={activeFolder}
-            recentFolders={recentFolders}
             images={images}
             isSelecting={isSelecting}
             isLoading={isLoading}
             errorMessage={errorMessage}
             onSelectFolder={handleFolderSelect}
             onReload={handleReload}
-            onRecentFolder={handleRecentFolder}
           />
         }
       />
