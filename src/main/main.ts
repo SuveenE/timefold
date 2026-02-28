@@ -144,6 +144,50 @@ const toIsoDateIfValid = (value: string): string | null => {
   return parsed.toISOString();
 };
 
+const inferCountryFromCoordinates = (
+  latitude: number,
+  longitude: number,
+): string | null => {
+  if (
+    Number.isNaN(latitude) ||
+    Number.isNaN(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return null;
+  }
+
+  // Local fallback coverage for current library geographies when EXIF country is missing.
+  if (
+    latitude >= 24 &&
+    latitude <= 49 &&
+    longitude >= -126 &&
+    longitude <= -66
+  ) {
+    return 'United States';
+  }
+
+  if (latitude >= 8 && latitude <= 24 && longitude >= 102 && longitude <= 110) {
+    return 'Vietnam';
+  }
+
+  if (latitude >= 5 && latitude <= 11 && longitude >= 79 && longitude <= 82) {
+    return 'Sri Lanka';
+  }
+
+  if (latitude >= 1 && latitude <= 2 && longitude >= 103 && longitude <= 104) {
+    return 'Singapore';
+  }
+
+  if (latitude >= 5 && latitude <= 21 && longitude >= 97 && longitude <= 106) {
+    return 'Thailand';
+  }
+
+  return null;
+};
+
 const extractImageMetadata = async (
   absolutePath: string,
 ): Promise<ImageMetadata> => {
@@ -191,6 +235,14 @@ const extractImageMetadata = async (
 
       if (rawCountry) {
         country = rawCountry;
+      }
+
+      if (!country && latitude !== null && longitude !== null) {
+        country = inferCountryFromCoordinates(latitude, longitude);
+      }
+
+      if (country) {
+        location = country;
       }
     } catch {
       // no-op; use fallback values below
