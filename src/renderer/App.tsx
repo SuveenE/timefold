@@ -11,11 +11,8 @@ import {
   Routes,
   useNavigate,
 } from 'react-router-dom';
+import { Clock3, House, MapPin, Settings as SettingsIcon } from 'lucide-react';
 import type { ListedImage } from '../main/preload';
-import homeIcon from '../../assets/icons/home.png';
-import settingsIcon from '../../assets/icons/settings.png';
-import locationIcon from '../../assets/icons/map-pin.png';
-import timeIcon from '../../assets/icons/clock.png';
 import './App.css';
 
 type ClusterLayout = {
@@ -731,7 +728,7 @@ function Explore({ images }: ExploreProps) {
             aria-label="Go to home"
             onClick={() => navigate('/')}
           >
-            <img src={homeIcon} alt="" aria-hidden="true" />
+            <House className="explore-sidebar-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -739,7 +736,7 @@ function Explore({ images }: ExploreProps) {
             aria-label="Go to settings"
             onClick={() => navigate('/settings')}
           >
-            <img src={settingsIcon} alt="" aria-hidden="true" />
+            <SettingsIcon className="explore-sidebar-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -753,7 +750,7 @@ function Explore({ images }: ExploreProps) {
               )
             }
           >
-            <img src={locationIcon} alt="" aria-hidden="true" />
+            <MapPin className="explore-sidebar-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -763,7 +760,7 @@ function Explore({ images }: ExploreProps) {
               setMode((current) => (current === 'time' ? 'free' : 'time'))
             }
           >
-            <img src={timeIcon} alt="" aria-hidden="true" />
+            <Clock3 className="explore-sidebar-icon" aria-hidden="true" />
           </button>
         </aside>
 
