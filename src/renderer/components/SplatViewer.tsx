@@ -3,6 +3,7 @@ import * as THREE from 'three';
 // @ts-expect-error -- JS module exists at runtime; node16 resolution cannot find the types.
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer';
 import type { ImageSplat } from '../types/gallery';
+import SPARK_SPLAT_DEFINES from '../utils/sparkSplatDefines';
 
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
@@ -521,6 +522,75 @@ const parsePlyData = (
   return { positions: finalPositions, colors: finalColors, count: writeIndex };
 };
 
+type SparkSplatMesh = THREE.Object3D & {
+  initialized?: Promise<unknown>;
+  dispose?: () => void;
+  getBoundingBox?: (centersOnly?: boolean) => THREE.Box3;
+};
+
+type SparkModule = {
+  SplatMesh?: new (options?: {
+    fileBytes?: Uint8Array | ArrayBuffer;
+    fileName?: string;
+  }) => SparkSplatMesh;
+};
+
+let sparkModulePromise: Promise<SparkModule> | null = null;
+let sparkWasmDataFetchPatched = false;
+
+const patchSparkWasmDataFetch = () => {
+  if (sparkWasmDataFetchPatched) {
+    return;
+  }
+
+  const nativeFetch = window.fetch.bind(window);
+  const patchedFetch: typeof window.fetch = async (
+    input: Parameters<typeof window.fetch>[0],
+    init?: Parameters<typeof window.fetch>[1],
+  ) => {
+    let requestUrl = '';
+    if (typeof input === 'string') {
+      requestUrl = input;
+    } else if (input instanceof URL) {
+      requestUrl = input.toString();
+    } else {
+      requestUrl = input.url;
+    }
+    const dataPrefix = 'data:application/wasm;base64,';
+
+    if (requestUrl.startsWith(dataPrefix)) {
+      const base64 = requestUrl.slice(dataPrefix.length);
+      const binary = window.atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Response(bytes, {
+        headers: { 'Content-Type': 'application/wasm' },
+      });
+    }
+
+    return nativeFetch(input, init);
+  };
+
+  window.fetch = patchedFetch;
+  sparkWasmDataFetchPatched = true;
+};
+
+const loadSparkModule = async (): Promise<SparkModule> => {
+  patchSparkWasmDataFetch();
+  if (
+    typeof THREE.ShaderChunk.splatDefines !== 'string' ||
+    THREE.ShaderChunk.splatDefines.length === 0
+  ) {
+    THREE.ShaderChunk.splatDefines = SPARK_SPLAT_DEFINES;
+  }
+  if (!sparkModulePromise) {
+    sparkModulePromise = import('@sparkjsdev/spark') as Promise<SparkModule>;
+  }
+  return sparkModulePromise;
+};
+
 // ---------------------------------------------------------------------------
 // GPGPU particle system setup
 // ---------------------------------------------------------------------------
@@ -656,6 +726,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let animationFrameId = 0;
     let previousFrameTime = performance.now();
     let gpgpuState: GpgpuState | null = null;
+    let sparkMesh: SparkSplatMesh | null = null;
     const orbitTarget = new THREE.Vector3(0, 0, 0);
     let orbitRadius = 3.2;
     let orbitYaw = 0.42;
@@ -668,6 +739,10 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let pointerLastX = 0;
     let pointerLastY = 0;
     let elapsedTime = 0;
+    let hoverYawOffset = 0;
+    let hoverPitchOffset = 0;
+    let hoverYawTarget = 0;
+    let hoverPitchTarget = 0;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
@@ -714,7 +789,14 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(mountNode);
 
-    const applyOrbitFromBounds = (bounds: THREE.Box3) => {
+    const applyOrbitFromBounds = (
+      bounds: THREE.Box3,
+      options?: {
+        distanceMultiplier?: number;
+        minDistance?: number;
+        initialPitch?: number;
+      },
+    ) => {
       const sphere = bounds.getBoundingSphere(new THREE.Sphere());
 
       if (
@@ -724,9 +806,12 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         Number.isFinite(sphere.center.z) &&
         sphere.radius > 0
       ) {
+        const distanceMultiplier = options?.distanceMultiplier ?? 3.2;
+        const minDistance = options?.minDistance ?? 1.45;
+        const initialPitch = options?.initialPitch ?? 0.14;
         orbitTarget.copy(sphere.center);
-        orbitRadius = Math.max(1.45, sphere.radius * 3.2);
-        orbitPitch = 0.14;
+        orbitRadius = Math.max(minDistance, sphere.radius * distanceMultiplier);
+        orbitPitch = initialPitch;
         minOrbitRadius = Math.max(0.35, sphere.radius * 0.22);
         maxOrbitRadius = Math.max(minOrbitRadius * 2, sphere.radius * 14);
         orbitRadius = clamp(orbitRadius, minOrbitRadius, maxOrbitRadius);
@@ -748,6 +833,14 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      const safeWidth = Math.max(1, bounds.width);
+      const safeHeight = Math.max(1, bounds.height);
+      const pointerX = clamp((event.clientX - bounds.left) / safeWidth, 0, 1);
+      const pointerY = clamp((event.clientY - bounds.top) / safeHeight, 0, 1);
+      hoverYawTarget = (pointerX * 2 - 1) * 0.36;
+      hoverPitchTarget = (1 - pointerY * 2) * 0.22;
+
       if (!isPointerDragging || activePointerId !== event.pointerId) {
         return;
       }
@@ -760,6 +853,11 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       orbitYaw -= deltaX * 0.006;
       orbitPitch = clamp(orbitPitch - deltaY * 0.0045, -1.2, 1.2);
       event.preventDefault();
+    };
+
+    const onPointerLeave = () => {
+      hoverYawTarget = 0;
+      hoverPitchTarget = 0;
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -792,6 +890,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
 
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerleave', onPointerLeave);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('pointercancel', onPointerUp);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
@@ -806,34 +905,40 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       const deltaTime = Math.max(0, (timeMs - previousFrameTime) / 1000);
       previousFrameTime = timeMs;
 
-      if (gpgpuState) {
+      if (gpgpuState || sparkMesh) {
         elapsedTime += deltaTime;
 
         if (!hasManualOrbitInput) {
           orbitYaw += deltaTime * 0.16;
         }
+        const hoverLerp = Math.min(1, deltaTime * 8);
+        hoverYawOffset += (hoverYawTarget - hoverYawOffset) * hoverLerp;
+        hoverPitchOffset += (hoverPitchTarget - hoverPitchOffset) * hoverLerp;
         updateCameraFrustum();
-        const pitch = clamp(orbitPitch, -1.2, 1.2);
+        const yaw = orbitYaw + hoverYawOffset;
+        const pitch = clamp(orbitPitch + hoverPitchOffset, -1.2, 1.2);
         const cosPitch = Math.cos(pitch);
 
         camera.position.set(
-          orbitTarget.x + Math.sin(orbitYaw) * orbitRadius * cosPitch,
+          orbitTarget.x + Math.sin(yaw) * orbitRadius * cosPitch,
           orbitTarget.y + Math.sin(pitch) * orbitRadius,
-          orbitTarget.z + Math.cos(orbitYaw) * orbitRadius * cosPitch,
+          orbitTarget.z + Math.cos(yaw) * orbitRadius * cosPitch,
         );
         camera.lookAt(orbitTarget);
         camera.updateMatrixWorld();
 
-        // GPGPU update
-        gpgpuState.particlesVariable.material.uniforms.uTime.value =
-          elapsedTime;
-        gpgpuState.particlesVariable.material.uniforms.uDeltaTime.value =
-          deltaTime;
-        gpgpuState.gpgpu.compute();
-        gpgpuState.material.uniforms.uParticlesTexture.value =
-          gpgpuState.gpgpu.getCurrentRenderTarget(
-            gpgpuState.particlesVariable,
-          ).texture;
+        if (gpgpuState) {
+          // GPGPU update
+          gpgpuState.particlesVariable.material.uniforms.uTime.value =
+            elapsedTime;
+          gpgpuState.particlesVariable.material.uniforms.uDeltaTime.value =
+            deltaTime;
+          gpgpuState.gpgpu.compute();
+          gpgpuState.material.uniforms.uParticlesTexture.value =
+            gpgpuState.gpgpu.getCurrentRenderTarget(
+              gpgpuState.particlesVariable,
+            ).texture;
+        }
       }
 
       renderer.render(scene, camera);
@@ -849,41 +954,74 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       try {
         const extension = getSplatExtension(splat.path);
 
-        if (extension === 'spz') {
-          throw new Error(
-            '`.spz` format is not yet supported. Use a `.ply` file instead.',
-          );
-        }
-
         const bytesFromMain = await window.electron.folder.getSplatBytes(
           splat.path,
         );
         const splatBytes = toUint8Array(bytesFromMain);
         if (!splatBytes) {
-          throw new Error('No `.ply` bytes available');
+          throw new Error('No splat bytes available');
         }
 
-        const { positions, colors, count } = parsePlyData(splatBytes);
+        if (extension === 'ply') {
+          const parsedData = parsePlyData(splatBytes);
+          const { positions, colors, count } = parsedData;
 
-        if (isDisposed) {
-          return;
+          if (isDisposed) {
+            return;
+          }
+
+          const state = setupGpgpuParticles(positions, colors, count, renderer);
+
+          if (isDisposed) {
+            state.points.geometry.dispose();
+            state.material.dispose();
+            state.gpgpu.dispose();
+            return;
+          }
+
+          gpgpuState = state;
+          state.points.rotation.x = Math.PI;
+          scene.add(state.points);
+          applyOrbitFromBounds(state.bounds);
+          setIsViewerReady(true);
+        } else if (extension === 'spz') {
+          setLoadInfo('Loading Spark renderer...');
+          const spark = await loadSparkModule();
+          if (typeof spark.SplatMesh !== 'function') {
+            throw new Error('Spark SplatMesh export is unavailable');
+          }
+
+          const mesh = new spark.SplatMesh({
+            fileBytes: splatBytes,
+            fileName: splat.name,
+          });
+          if (mesh.initialized) {
+            await mesh.initialized;
+          }
+
+          if (isDisposed) {
+            mesh.dispose?.();
+            return;
+          }
+
+          sparkMesh = mesh;
+          scene.add(mesh);
+          const sparkBounds =
+            typeof mesh.getBoundingBox === 'function'
+              ? mesh.getBoundingBox(true)
+              : new THREE.Box3().setFromObject(mesh);
+          applyOrbitFromBounds(sparkBounds, {
+            distanceMultiplier: 1.4,
+            minDistance: 0.72,
+            initialPitch: 0.06,
+          });
+          setLoadInfo(null);
+          setIsViewerReady(true);
+        } else {
+          throw new Error(
+            `Unsupported splat format: .${extension || 'unknown'}`,
+          );
         }
-
-        const state = setupGpgpuParticles(positions, colors, count, renderer);
-
-        if (isDisposed) {
-          state.points.geometry.dispose();
-          state.material.dispose();
-          state.gpgpu.dispose();
-          return;
-        }
-
-        gpgpuState = state;
-        state.points.rotation.x = Math.PI;
-        scene.add(state.points);
-        applyOrbitFromBounds(state.bounds);
-
-        setIsViewerReady(true);
       } catch (error) {
         if (!isDisposed) {
           setLoadError(
@@ -905,6 +1043,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerleave', onPointerLeave);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointercancel', onPointerUp);
       renderer.domElement.removeEventListener('wheel', onWheel);
@@ -915,6 +1054,10 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         gpgpuState.points.geometry.dispose();
         gpgpuState.material.dispose();
         gpgpuState.gpgpu.dispose();
+      }
+      if (sparkMesh) {
+        scene.remove(sparkMesh);
+        sparkMesh.dispose?.();
       }
 
       renderer.dispose();
