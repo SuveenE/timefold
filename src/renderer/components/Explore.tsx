@@ -23,6 +23,8 @@ const TIME_GLOBE_RADIUS = 300;
 const TIME_CLUSTER_BASE_SPREAD = 14;
 const TIME_CLUSTER_SPIRAL_SPREAD = 20;
 const TIME_CLUSTER_COMPRESSION_MIN = 0.82;
+// Move time clusters downward by ~3cm (about 113px at 96dpi).
+const TIME_CLUSTER_VERTICAL_OFFSET_Y = 113;
 const EXPLORE_WORLD_BASE_OFFSET_X = -24;
 // Move the explore cloud upward by ~3cm (about 113px at 96dpi).
 const EXPLORE_WORLD_BASE_OFFSET_Y = -131;
@@ -357,11 +359,15 @@ export default function Explore({
       const latitude =
         cluster.year === null ? -72 : 60 - (clusterIndex / indexSpan) * 120;
       const longitude = ((clusterIndex * 137.50776405003785) % 360) - 180;
-      const center = projectCoordinatesToGlobe(
+      const projectedCenter = projectCoordinatesToGlobe(
         latitude,
         longitude,
         TIME_GLOBE_RADIUS,
       );
+      const center = {
+        ...projectedCenter,
+        y: projectedCenter.y + TIME_CLUSTER_VERTICAL_OFFSET_Y,
+      };
 
       return {
         cluster,
@@ -702,7 +708,7 @@ export default function Explore({
           <div className="explore-scene">
             <div className="explore-world" ref={exploreWorldRef}>
               {mode === 'location' ? (
-                <div className="explore-location-map" aria-hidden="true" />
+                <div className="explore-location-globe" aria-hidden="true" />
               ) : null}
               {mode === 'time' ? (
                 <div className="explore-time-stars" aria-hidden="true" />
