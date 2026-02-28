@@ -47,6 +47,23 @@ type TimeCluster = {
   images: ListedImage[];
 };
 
+type TimeClusterLayout = {
+  cluster: TimeCluster;
+  latitude: number;
+  longitude: number;
+  center: {
+    x: number;
+    y: number;
+    z: number;
+  };
+};
+
+type ExploreTimeMarkerStyle = CSSProperties & {
+  '--ex-x': string;
+  '--ex-y': string;
+  '--ex-z': string;
+};
+
 const hasValidCoordinates = (latitude: number, longitude: number): boolean => {
   return (
     Number.isFinite(latitude) &&
@@ -266,7 +283,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
     });
   }, [images]);
 
-  const timeItems = useMemo<ExploreSceneItem[]>(() => {
+  const timeClusterLayouts = useMemo<TimeClusterLayout[]>(() => {
     const totalClusters = timeClusters.length;
 
     if (totalClusters === 0) {
@@ -275,7 +292,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
 
     const indexSpan = Math.max(totalClusters - 1, 1);
 
-    return timeClusters.flatMap((cluster, clusterIndex) => {
+    return timeClusters.map((cluster, clusterIndex) => {
       const latitude =
         cluster.year === null ? -72 : 60 - (clusterIndex / indexSpan) * 120;
       const longitude = ((clusterIndex * 137.50776405003785) % 360) - 180;
@@ -284,45 +301,63 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         longitude,
         TIME_GLOBE_RADIUS,
       );
-      const basis = buildTangentBasis(latitude, longitude);
-      const clusterCompression = clamp(
-        1 - Math.min(cluster.images.length, 18) * 0.018,
-        0.68,
-        1,
-      );
 
-      return cluster.images.map((image, imageIndex) => {
-        const angle = imageIndex * GOLDEN_ANGLE_RADIANS;
-        const radialDistance =
-          8 + Math.sqrt(imageIndex + 1) * 12 * clusterCompression;
-        const offsetEast = Math.cos(angle) * radialDistance;
-        const offsetNorth = Math.sin(angle) * radialDistance;
-        const x =
-          center.x + basis.east.x * offsetEast + basis.north.x * offsetNorth;
-        const y =
-          center.y + basis.east.y * offsetEast + basis.north.y * offsetNorth;
-        const z =
-          center.z + basis.east.z * offsetEast + basis.north.z * offsetNorth;
-        const depthHint = clamp(
-          (z + TIME_GLOBE_RADIUS) / (TIME_GLOBE_RADIUS * 2),
-          0,
+      return {
+        cluster,
+        latitude,
+        longitude,
+        center,
+      };
+    });
+  }, [timeClusters]);
+
+  const timeItems = useMemo<ExploreSceneItem[]>(() => {
+    if (timeClusterLayouts.length === 0) {
+      return [];
+    }
+
+    return timeClusterLayouts.flatMap(
+      ({ cluster, latitude, longitude, center }) => {
+        const basis = buildTangentBasis(latitude, longitude);
+        const clusterCompression = clamp(
+          1 - Math.min(cluster.images.length, 18) * 0.018,
+          0.68,
           1,
         );
 
-        return {
-          image,
-          layout: {
-            x,
-            y,
-            z,
-            width: 56 + depthHint * 24,
-            rotation: Math.sin(angle) * 4,
-            opacity: clamp(0.48 + depthHint * 0.46, 0.42, 1),
-          },
-        };
-      });
-    });
-  }, [timeClusters]);
+        return cluster.images.map((image, imageIndex) => {
+          const angle = imageIndex * GOLDEN_ANGLE_RADIANS;
+          const radialDistance =
+            8 + Math.sqrt(imageIndex + 1) * 12 * clusterCompression;
+          const offsetEast = Math.cos(angle) * radialDistance;
+          const offsetNorth = Math.sin(angle) * radialDistance;
+          const x =
+            center.x + basis.east.x * offsetEast + basis.north.x * offsetNorth;
+          const y =
+            center.y + basis.east.y * offsetEast + basis.north.y * offsetNorth;
+          const z =
+            center.z + basis.east.z * offsetEast + basis.north.z * offsetNorth;
+          const depthHint = clamp(
+            (z + TIME_GLOBE_RADIUS) / (TIME_GLOBE_RADIUS * 2),
+            0,
+            1,
+          );
+
+          return {
+            image,
+            layout: {
+              x,
+              y,
+              z,
+              width: 56 + depthHint * 24,
+              rotation: Math.sin(angle) * 4,
+              opacity: clamp(0.48 + depthHint * 0.46, 0.42, 1),
+            },
+          };
+        });
+      },
+    );
+  }, [timeClusterLayouts]);
 
   const activeSceneItems = useMemo<ExploreSceneItem[]>(() => {
     if (mode === 'location') {
@@ -338,6 +373,24 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
   const imagesMissingCoordinates = images.length - locationItems.length;
   const visibleTimeClusters = timeClusters.slice(0, 8);
   const hiddenTimeClusterCount = Math.max(timeClusters.length - 8, 0);
+  const yearRangeLabel = useMemo(() => {
+    const knownYears = timeClusters
+      .map((cluster) => cluster.year)
+      .filter((year): year is number => year !== null);
+
+    if (knownYears.length === 0) {
+      return 'No dated photos';
+    }
+
+    const newestYear = Math.max(...knownYears);
+    const oldestYear = Math.min(...knownYears);
+
+    if (newestYear === oldestYear) {
+      return String(newestYear);
+    }
+
+    return `${oldestYear} - ${newestYear}`;
+  }, [timeClusters]);
 
   useEffect(() => {
     let frameId = 0;
@@ -520,7 +573,9 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
 
       <section
         ref={exploreStageRef}
-        className={`explore-stage ${exploreMotion.isDragging ? 'dragging' : ''}`}
+        className={`explore-stage ${exploreMotion.isDragging ? 'dragging' : ''} ${
+          mode === 'time' ? 'time-mode' : ''
+        }`}
         onPointerDown={exploreMotion.onPointerDown}
         onPointerMove={exploreMotion.onPointerMove}
         onPointerUp={exploreMotion.onPointerUp}
@@ -566,7 +621,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           <button
             type="button"
             className={`explore-sidebar-button ${mode === 'time' ? 'active' : ''}`}
-            aria-label="Show year clusters globe"
+            aria-label="Show year clusters"
             onClick={() =>
               setMode((current) => (current === 'time' ? 'free' : 'time'))
             }
@@ -582,8 +637,32 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                 <div className="explore-location-globe" aria-hidden="true" />
               ) : null}
               {mode === 'time' ? (
-                <div className="explore-year-globe" aria-hidden="true" />
+                <div className="explore-time-stars" aria-hidden="true" />
               ) : null}
+              {mode === 'time'
+                ? timeClusterLayouts.map(({ cluster, center }) => {
+                    const markerStyle: ExploreTimeMarkerStyle = {
+                      left: '50%',
+                      top: '50%',
+                      '--ex-x': `${center.x}px`,
+                      '--ex-y': `${center.y - 64}px`,
+                      '--ex-z': `${center.z + 10}px`,
+                    };
+
+                    return (
+                      <div
+                        key={`time-marker-${cluster.label}`}
+                        className="explore-time-marker"
+                        style={markerStyle}
+                        aria-hidden="true"
+                      >
+                        <span className="explore-time-marker-year">
+                          {cluster.label}
+                        </span>
+                      </div>
+                    );
+                  })
+                : null}
               {activeSceneItems.map(({ image, layout }) => {
                 const cardStyle: ExploreCardStyle = {
                   left: '50%',
@@ -654,6 +733,9 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                 <p className="explore-time-meta-title">
                   {timeClusters.length} year
                   {timeClusters.length === 1 ? ' cluster' : ' clusters'}
+                </p>
+                <p className="explore-time-meta-copy">
+                  Years: {yearRangeLabel}
                 </p>
                 <div className="explore-time-meta-chips">
                   {visibleTimeClusters.map((cluster) => (
