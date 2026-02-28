@@ -118,6 +118,91 @@ body {
   user-select: none;
 }
 
+.explore-screen {
+  padding-bottom: 16px;
+}
+
+.explore-stage {
+  position: relative;
+  flex: 1;
+  margin: 16px 18px 0;
+  border-radius: 26px;
+  overflow: hidden;
+  perspective: 1700px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    radial-gradient(circle at 25% 25%, rgba(55, 70, 108, 0.22), transparent 45%),
+    radial-gradient(circle at 78% 75%, rgba(129, 90, 29, 0.2), transparent 44%),
+    rgba(5, 5, 8, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: grab;
+  touch-action: none;
+}
+
+.explore-stage.dragging {
+  cursor: grabbing;
+}
+
+.explore-scene {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  display: grid;
+  place-items: center;
+}
+
+.explore-world {
+  position: relative;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transition: transform 70ms linear;
+}
+
+.explore-card {
+  position: absolute;
+  margin: 0;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  animation: explore-depth var(--ex-duration, 16s) ease-in-out infinite;
+  animation-delay: var(--ex-delay, 0s);
+}
+
+.explore-card-frame {
+  border-radius: 7px;
+  transform: rotate(var(--ex-rotate, 0deg));
+  transform-origin: center;
+  overflow: hidden;
+  opacity: var(--ex-opacity, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 10, 10, 0.95);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.explore-card-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  object-fit: cover;
+  user-select: none;
+}
+
+.explore-empty {
+  top: 50%;
+}
+
+.explore-dock {
+  margin-bottom: 6px;
+}
+
+.explore-actions {
+  justify-content: flex-start;
+}
+
 .status-panel {
   position: absolute;
   left: 50%;
@@ -329,6 +414,23 @@ body {
   }
 }
 
+@keyframes explore-depth {
+  0% {
+    transform: translate3d(var(--ex-x), var(--ex-y), var(--ex-z-start))
+      rotateZ(var(--ex-rotate));
+  }
+
+  50% {
+    transform: translate3d(var(--ex-x), var(--ex-y), var(--ex-z-end))
+      rotateZ(calc(var(--ex-rotate) + var(--ex-spin)));
+  }
+
+  100% {
+    transform: translate3d(var(--ex-x), var(--ex-y), var(--ex-z-start))
+      rotateZ(var(--ex-rotate));
+  }
+}
+
 @keyframes pan-nebula {
   0%,
   100% {
@@ -345,6 +447,11 @@ body {
   }
 
   .control-dock {
+    border-radius: 20px;
+  }
+
+  .explore-stage {
+    margin-inline: 12px;
     border-radius: 20px;
   }
 }
@@ -366,5 +473,9 @@ body {
   .status-panel {
     top: 34%;
     padding: 18px;
+  }
+
+  .explore-stage {
+    margin: 10px 10px 0;
   }
 }

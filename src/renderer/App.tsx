@@ -1,6 +1,15 @@
-import type { CSSProperties } from 'react';
-import { useEffect, useMemo, useState } from 'react';
-import { MemoryRouter as Router, Routes, Route } from 'react-router-dom';
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  MemoryRouter as Router,
+  Route,
+  Routes,
+  useNavigate,
+} from 'react-router-dom';
 import type { ListedImage } from '../main/preload';
 import './App.css';
 
@@ -41,8 +50,68 @@ type TileStyle = CSSProperties & {
   '--tile-blur': string;
 };
 
+type ExploreLayout = {
+  x: number;
+  y: number;
+  zStart: number;
+  zEnd: number;
+  width: number;
+  rotation: number;
+  spin: number;
+  duration: number;
+  delay: number;
+  opacity: number;
+  zIndex: number;
+};
+
+type ExploreCardStyle = CSSProperties & {
+  '--ex-x': string;
+  '--ex-y': string;
+  '--ex-z-start': string;
+  '--ex-z-end': string;
+  '--ex-rotate': string;
+  '--ex-spin': string;
+  '--ex-duration': string;
+  '--ex-delay': string;
+  '--ex-opacity': string;
+};
+
+type HomeProps = {
+  activeFolder: string | null;
+  recentFolders: RecentFolder[];
+  images: ListedImage[];
+  isSelecting: boolean;
+  isLoading: boolean;
+  errorMessage: string | null;
+  onSelectFolder: () => Promise<void>;
+  onReload: () => Promise<void>;
+  onRecentFolder: (folderPath: string) => Promise<void>;
+};
+
+type ExploreProps = {
+  activeFolder: string | null;
+  images: ListedImage[];
+};
+
+type CameraState = {
+  x: number;
+  y: number;
+  rotateX: number;
+  rotateY: number;
+  zoom: number;
+};
+
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
+const MAX_RECENT_FOLDERS = 4;
+
+const INITIAL_CAMERA: CameraState = {
+  x: 0,
+  y: 0,
+  rotateX: -8,
+  rotateY: 18,
+  zoom: -180,
+};
 
 const getFolderName = (folderPath: string): string => {
   return (
@@ -107,17 +176,57 @@ const createClusterLayout = (
   };
 };
 
-function Home() {
-  const [activeFolder, setActiveFolder] = useState<string | null>(null);
-  const [recentFolders, setRecentFolders] = useState<RecentFolder[]>([]);
-  const [images, setImages] = useState<ListedImage[]>([]);
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+const createExploreLayout = (
+  seedKey: string,
+  index: number,
+  total: number,
+): ExploreLayout => {
+  const random = createRandom(
+    createSeed(`explore:${seedKey}:${index}:${total}`),
+  );
+  const theta = random() * Math.PI * 2;
+  const radius = 170 + random() ** 0.8 * 520;
+  const ovalStretch = 0.64 + random() * 0.28;
+  const spreadOffset = (index / Math.max(total, 1)) * Math.PI * 0.24;
+  const depthBase = (random() - 0.5) * 760;
+  const depthTravel = 210 + random() * 380;
+  const perspectiveHint = clamp((depthBase + 760) / 1520, 0, 1);
+
+  return {
+    x: Math.cos(theta + spreadOffset) * radius,
+    y: Math.sin(theta * 1.08 + spreadOffset) * radius * ovalStretch,
+    zStart: depthBase - depthTravel * 0.5,
+    zEnd: depthBase + depthTravel * 0.5,
+    width: 92 + random() * 132 + perspectiveHint * 42,
+    rotation: (random() - 0.5) * 32,
+    spin: (random() - 0.5) * 18,
+    duration: 14 + random() * 18,
+    delay: random() * 20,
+    opacity: clamp(0.52 + perspectiveHint * 0.48, 0.44, 1),
+    zIndex: 10 + Math.round(perspectiveHint * 250),
+  };
+};
+
+function Home({
+  activeFolder,
+  recentFolders,
+  images,
+  isSelecting,
+  isLoading,
+  errorMessage,
+  onSelectFolder,
+  onReload,
+  onRecentFolder,
+}: HomeProps) {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [failedImagePaths, setFailedImagePaths] = useState<
     Record<string, true>
   >({});
+
+  useEffect(() => {
+    setFailedImagePaths({});
+  }, [images]);
 
   const extensionCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -225,68 +334,6 @@ function Home() {
     });
   }, [renderableImages]);
 
-  const loadFolderImages = async (folderPath: string) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-    setFailedImagePaths({});
-
-    try {
-      const folderImages = await window.electron.folder.listImages(folderPath);
-      setImages(folderImages);
-
-      if (folderImages.length === 0) {
-        setErrorMessage('No supported image files were found in this folder.');
-      }
-    } catch {
-      setImages([]);
-      setErrorMessage(
-        'Unable to read this folder. Please try another location.',
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleFolderSelect = async () => {
-    setIsSelecting(true);
-
-    try {
-      const selectedFolder = await window.electron.folder.select();
-
-      if (!selectedFolder) {
-        return;
-      }
-
-      setActiveFolder(selectedFolder);
-      setRecentFolders((previous) => {
-        const updated = previous.filter(
-          (folder) => folder.path !== selectedFolder,
-        );
-        updated.unshift({
-          name: getFolderName(selectedFolder),
-          path: selectedFolder,
-        });
-        return updated.slice(0, 4);
-      });
-      await loadFolderImages(selectedFolder);
-    } finally {
-      setIsSelecting(false);
-    }
-  };
-
-  const handleRecentFolder = async (folderPath: string) => {
-    setActiveFolder(folderPath);
-    await loadFolderImages(folderPath);
-  };
-
-  const handleReload = async () => {
-    if (!activeFolder) {
-      return;
-    }
-
-    await loadFolderImages(activeFolder);
-  };
-
   return (
     <main className="gallery-screen">
       <div className="nebula" aria-hidden="true" />
@@ -380,10 +427,20 @@ function Home() {
         </div>
 
         <div className="dock-actions">
+          {images.length > 0 && (
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => navigate('/explore')}
+              disabled={isLoading}
+            >
+              explore
+            </button>
+          )}
           <button
             type="button"
             className="ghost-button"
-            onClick={handleReload}
+            onClick={onReload}
             disabled={!activeFolder || isLoading}
           >
             reload
@@ -391,7 +448,7 @@ function Home() {
           <button
             type="button"
             className="primary-button"
-            onClick={handleFolderSelect}
+            onClick={onSelectFolder}
             disabled={isSelecting}
           >
             {isSelecting ? 'opening...' : 'choose folder'}
@@ -425,7 +482,7 @@ function Home() {
                 key={folder.path}
                 type="button"
                 className="recent-folder"
-                onClick={() => handleRecentFolder(folder.path)}
+                onClick={() => onRecentFolder(folder.path)}
               >
                 {folder.name}
               </button>
@@ -437,12 +494,292 @@ function Home() {
   );
 }
 
+function Explore({ activeFolder, images }: ExploreProps) {
+  const navigate = useNavigate();
+  const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragState = useRef({
+    active: false,
+    pointerId: -1,
+    lastX: 0,
+    lastY: 0,
+  });
+
+  const exploreItems = useMemo(() => {
+    return images.map((image, index) => {
+      return {
+        image,
+        layout: createExploreLayout(image.path, index, images.length),
+      };
+    });
+  }, [images]);
+
+  const worldStyle = useMemo((): CSSProperties => {
+    return {
+      transform: `translate3d(${camera.x}px, ${camera.y}px, ${camera.zoom}px) rotateX(${camera.rotateX}deg) rotateY(${camera.rotateY}deg)`,
+    };
+  }, [camera]);
+
+  const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    dragState.current = {
+      active: true,
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+      lastY: event.clientY,
+    };
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (
+      !dragState.current.active ||
+      dragState.current.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+
+    const deltaX = event.clientX - dragState.current.lastX;
+    const deltaY = event.clientY - dragState.current.lastY;
+
+    dragState.current.lastX = event.clientX;
+    dragState.current.lastY = event.clientY;
+
+    setCamera((current) => {
+      return {
+        x: clamp(current.x + deltaX, -360, 360),
+        y: clamp(current.y + deltaY, -280, 280),
+        rotateX: clamp(current.rotateX - deltaY * 0.08, -52, 52),
+        rotateY: clamp(current.rotateY + deltaX * 0.08, -62, 62),
+        zoom: current.zoom,
+      };
+    });
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (dragState.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    dragState.current.active = false;
+    dragState.current.pointerId = -1;
+    setIsDragging(false);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    event.preventDefault();
+
+    setCamera((current) => {
+      return {
+        ...current,
+        zoom: clamp(current.zoom - event.deltaY * 0.55, -900, 260),
+      };
+    });
+  };
+
+  return (
+    <main className="gallery-screen explore-screen">
+      <div className="nebula" aria-hidden="true" />
+      <div className="grain" aria-hidden="true" />
+
+      <section
+        className={`explore-stage ${isDragging ? 'dragging' : ''}`}
+        onPointerDown={beginDrag}
+        onPointerMove={updateDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onWheel={handleWheel}
+        aria-label="Interactive image space"
+      >
+        {images.length > 0 ? (
+          <div className="explore-scene">
+            <div className="explore-world" style={worldStyle}>
+              {exploreItems.map(({ image, layout }) => {
+                const cardStyle: ExploreCardStyle = {
+                  left: '50%',
+                  top: '50%',
+                  width: `${layout.width}px`,
+                  zIndex: layout.zIndex,
+                  '--ex-x': `${layout.x}px`,
+                  '--ex-y': `${layout.y}px`,
+                  '--ex-z-start': `${layout.zStart}px`,
+                  '--ex-z-end': `${layout.zEnd}px`,
+                  '--ex-rotate': `${layout.rotation}deg`,
+                  '--ex-spin': `${layout.spin}deg`,
+                  '--ex-duration': `${layout.duration}s`,
+                  '--ex-delay': `-${layout.delay}s`,
+                  '--ex-opacity': `${layout.opacity}`,
+                };
+
+                return (
+                  <figure
+                    key={`explore-${image.path}`}
+                    className="explore-card"
+                    style={cardStyle}
+                  >
+                    <div className="explore-card-frame">
+                      <img
+                        src={image.url}
+                        alt=""
+                        loading="lazy"
+                        draggable={false}
+                      />
+                    </div>
+                  </figure>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="status-panel explore-empty">
+            <p className="status-title">No images loaded yet</p>
+            <p className="status-copy">
+              Go back and choose a local folder first.
+            </p>
+          </div>
+        )}
+      </section>
+
+      <footer className="control-dock explore-dock">
+        <div className="dock-actions explore-actions">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => navigate('/')}
+          >
+            back
+          </button>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setCamera(INITIAL_CAMERA)}
+            disabled={images.length === 0}
+          >
+            reset view
+          </button>
+        </div>
+
+        <section className="dock-meta">
+          <p className="folder-name">
+            {activeFolder ? getFolderName(activeFolder) : 'No folder selected'}
+          </p>
+          <p className="folder-path">
+            {activeFolder || 'Return and choose a local folder'}
+          </p>
+          <p className="hint">
+            {images.length} images loaded. Drag to orbit the space, scroll to
+            zoom.
+          </p>
+        </section>
+      </footer>
+    </main>
+  );
+}
+
+function AppRoutes() {
+  const [activeFolder, setActiveFolder] = useState<string | null>(null);
+  const [recentFolders, setRecentFolders] = useState<RecentFolder[]>([]);
+  const [images, setImages] = useState<ListedImage[]>([]);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const loadFolderImages = async (folderPath: string) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const folderImages = await window.electron.folder.listImages(folderPath);
+      setImages(folderImages);
+
+      if (folderImages.length === 0) {
+        setErrorMessage('No supported image files were found in this folder.');
+      }
+    } catch {
+      setImages([]);
+      setErrorMessage(
+        'Unable to read this folder. Please try another location.',
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFolderSelect = async () => {
+    setIsSelecting(true);
+
+    try {
+      const selectedFolder = await window.electron.folder.select();
+
+      if (!selectedFolder) {
+        return;
+      }
+
+      setActiveFolder(selectedFolder);
+      setRecentFolders((previous) => {
+        const updated = previous.filter(
+          (folder) => folder.path !== selectedFolder,
+        );
+        updated.unshift({
+          name: getFolderName(selectedFolder),
+          path: selectedFolder,
+        });
+        return updated.slice(0, MAX_RECENT_FOLDERS);
+      });
+
+      await loadFolderImages(selectedFolder);
+    } finally {
+      setIsSelecting(false);
+    }
+  };
+
+  const handleRecentFolder = async (folderPath: string) => {
+    setActiveFolder(folderPath);
+    await loadFolderImages(folderPath);
+  };
+
+  const handleReload = async () => {
+    if (!activeFolder) {
+      return;
+    }
+
+    await loadFolderImages(activeFolder);
+  };
+
+  return (
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <Home
+            activeFolder={activeFolder}
+            recentFolders={recentFolders}
+            images={images}
+            isSelecting={isSelecting}
+            isLoading={isLoading}
+            errorMessage={errorMessage}
+            onSelectFolder={handleFolderSelect}
+            onReload={handleReload}
+            onRecentFolder={handleRecentFolder}
+          />
+        }
+      />
+      <Route
+        path="/explore"
+        element={<Explore activeFolder={activeFolder} images={images} />}
+      />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <Router>
-      <Routes>
-        <Route path="/" element={<Home />} />
-      </Routes>
+      <AppRoutes />
     </Router>
   );
 }
