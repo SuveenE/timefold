@@ -532,6 +532,10 @@ const createWindow = async () => {
     return path.join(RESOURCES_PATH, ...paths);
   };
 
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(getAssetPath('icon.png'));
+  }
+
   mainWindow = new BrowserWindow({
     show: false,
     width: 1024,

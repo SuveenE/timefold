@@ -940,19 +940,25 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
-      setSettings((current) => {
-        if (current.photoAlbumLocation.trim().length > 0) {
-          return current;
-        }
+      const shouldSeedAlbumLocation = settings.photoAlbumLocation.trim() === '';
+      const nextSettings = shouldSeedAlbumLocation
+        ? {
+            ...settings,
+            photoAlbumLocation: selectedFolder,
+            metadataLocation: buildMetadataLocation(selectedFolder),
+          }
+        : settings;
 
-        return {
-          ...current,
-          photoAlbumLocation: selectedFolder,
-          metadataLocation: buildMetadataLocation(selectedFolder),
-        };
-      });
+      if (shouldSeedAlbumLocation) {
+        setSettings(nextSettings);
+        window.localStorage.setItem(
+          SETTINGS_STORAGE_KEY,
+          JSON.stringify(nextSettings),
+        );
+      }
+
       const effectiveMetadataLocation =
-        settings.metadataLocation.trim() ||
+        nextSettings.metadataLocation.trim() ||
         buildMetadataLocation(selectedFolder);
       await loadFolderImages(selectedFolder, effectiveMetadataLocation);
     } finally {
