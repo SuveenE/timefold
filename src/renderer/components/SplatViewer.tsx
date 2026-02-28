@@ -1102,7 +1102,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
             distanceMultiplier: 0.13,
             minDistance: 0.1,
             initialPitch: 0,
-            targetYRatio: 0.5,
+            targetYRatio: 0,
             targetZRatio: 0.5,
             groundYRatio: 0,
             lockMinPitchToInitial: false,
