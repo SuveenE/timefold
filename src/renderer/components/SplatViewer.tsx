@@ -789,7 +789,14 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(mountNode);
 
-    const applyOrbitFromBounds = (bounds: THREE.Box3) => {
+    const applyOrbitFromBounds = (
+      bounds: THREE.Box3,
+      options?: {
+        distanceMultiplier?: number;
+        minDistance?: number;
+        initialPitch?: number;
+      },
+    ) => {
       const sphere = bounds.getBoundingSphere(new THREE.Sphere());
 
       if (
@@ -799,9 +806,12 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         Number.isFinite(sphere.center.z) &&
         sphere.radius > 0
       ) {
+        const distanceMultiplier = options?.distanceMultiplier ?? 3.2;
+        const minDistance = options?.minDistance ?? 1.45;
+        const initialPitch = options?.initialPitch ?? 0.14;
         orbitTarget.copy(sphere.center);
-        orbitRadius = Math.max(1.45, sphere.radius * 3.2);
-        orbitPitch = 0.14;
+        orbitRadius = Math.max(minDistance, sphere.radius * distanceMultiplier);
+        orbitPitch = initialPitch;
         minOrbitRadius = Math.max(0.35, sphere.radius * 0.22);
         maxOrbitRadius = Math.max(minOrbitRadius * 2, sphere.radius * 14);
         orbitRadius = clamp(orbitRadius, minOrbitRadius, maxOrbitRadius);
@@ -998,9 +1008,13 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
           scene.add(mesh);
           const sparkBounds =
             typeof mesh.getBoundingBox === 'function'
-              ? mesh.getBoundingBox()
+              ? mesh.getBoundingBox(true)
               : new THREE.Box3().setFromObject(mesh);
-          applyOrbitFromBounds(sparkBounds);
+          applyOrbitFromBounds(sparkBounds, {
+            distanceMultiplier: 5.2,
+            minDistance: 2.8,
+            initialPitch: 0.06,
+          });
           setLoadInfo(null);
           setIsViewerReady(true);
         } else {
