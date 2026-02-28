@@ -227,6 +227,13 @@ function Home({
 }: HomeProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
+  const [cloudOffsetX, setCloudOffsetX] = useState(0);
+  const [isCloudDragging, setIsCloudDragging] = useState(false);
+  const cloudDragState = useRef({
+    active: false,
+    pointerId: -1,
+    lastX: 0,
+  });
   const [failedImagePaths, setFailedImagePaths] = useState<
     Record<string, true>
   >({});
@@ -337,69 +344,123 @@ function Home({
     });
   }, [renderableImages]);
 
+  const beginCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (renderableImages.length === 0) {
+      return;
+    }
+
+    cloudDragState.current = {
+      active: true,
+      pointerId: event.pointerId,
+      lastX: event.clientX,
+    };
+    setIsCloudDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const updateCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (
+      !cloudDragState.current.active ||
+      cloudDragState.current.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+
+    const deltaX = event.clientX - cloudDragState.current.lastX;
+    cloudDragState.current.lastX = event.clientX;
+
+    setCloudOffsetX((current) => clamp(current + deltaX, -420, 420));
+  };
+
+  const endCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (cloudDragState.current.pointerId !== event.pointerId) {
+      return;
+    }
+
+    cloudDragState.current.active = false;
+    cloudDragState.current.pointerId = -1;
+    setIsCloudDragging(false);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
     <main className="gallery-screen">
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
-      <section className="cloud-viewport" aria-live="polite">
+      <section
+        className={`cloud-viewport ${isCloudDragging ? 'dragging' : ''}`}
+        onPointerDown={beginCloudDrag}
+        onPointerMove={updateCloudDrag}
+        onPointerUp={endCloudDrag}
+        onPointerCancel={endCloudDrag}
+        aria-live="polite"
+      >
         {renderableImages.length > 0 && (
-          <div className="photo-cloud">
-            {cloudItems.map(({ image, layout }) => {
-              const tileStyle: TileStyle = {
-                left: `${layout.left}%`,
-                top: `${layout.top}%`,
-                width: `${layout.width}px`,
-                zIndex: layout.zIndex,
-                transform: 'translate(-50%, -50%)',
-                '--orbit-x': `${layout.orbitX}px`,
-                '--orbit-y': `${layout.orbitY}px`,
-                '--orbit-duration': `${layout.orbitDuration}s`,
-                '--orbit-delay': `-${layout.orbitDelay}s`,
-                '--counter-duration': `${layout.counterDuration}s`,
-                '--bob-x': `${layout.bobX}px`,
-                '--bob-y': `${layout.bobY}px`,
-                '--bob-duration': `${layout.bobDuration}s`,
-                '--tile-rotation': `${layout.rotation}deg`,
-                '--tile-opacity': `${layout.opacity}`,
-                '--tile-blur': `${layout.blur}px`,
-              };
+          <div
+            className="cloud-drag-layer"
+            style={{ transform: `translate3d(${cloudOffsetX}px, 0, 0)` }}
+          >
+            <div className="photo-cloud">
+              {cloudItems.map(({ image, layout }) => {
+                const tileStyle: TileStyle = {
+                  left: `${layout.left}%`,
+                  top: `${layout.top}%`,
+                  width: `${layout.width}px`,
+                  zIndex: layout.zIndex,
+                  transform: 'translate(-50%, -50%)',
+                  '--orbit-x': `${layout.orbitX}px`,
+                  '--orbit-y': `${layout.orbitY}px`,
+                  '--orbit-duration': `${layout.orbitDuration}s`,
+                  '--orbit-delay': `-${layout.orbitDelay}s`,
+                  '--counter-duration': `${layout.counterDuration}s`,
+                  '--bob-x': `${layout.bobX}px`,
+                  '--bob-y': `${layout.bobY}px`,
+                  '--bob-duration': `${layout.bobDuration}s`,
+                  '--tile-rotation': `${layout.rotation}deg`,
+                  '--tile-opacity': `${layout.opacity}`,
+                  '--tile-blur': `${layout.blur}px`,
+                };
 
-              return (
-                <figure
-                  key={image.path}
-                  className="photo-tile"
-                  style={tileStyle}
-                >
-                  <div className="orbit-track">
-                    <div className="orbit-orient">
-                      <div className="photo-motion">
-                        <div className="photo-frame">
-                          <img
-                            src={image.url}
-                            alt=""
-                            loading="lazy"
-                            draggable={false}
-                            onError={() => {
-                              setFailedImagePaths((current) => {
-                                if (current[image.path]) {
-                                  return current;
-                                }
+                return (
+                  <figure
+                    key={image.path}
+                    className="photo-tile"
+                    style={tileStyle}
+                  >
+                    <div className="orbit-track">
+                      <div className="orbit-orient">
+                        <div className="photo-motion">
+                          <div className="photo-frame">
+                            <img
+                              src={image.url}
+                              alt=""
+                              loading="lazy"
+                              draggable={false}
+                              onError={() => {
+                                setFailedImagePaths((current) => {
+                                  if (current[image.path]) {
+                                    return current;
+                                  }
 
-                                return {
-                                  ...current,
-                                  [image.path]: true,
-                                };
-                              });
-                            }}
-                          />
+                                  return {
+                                    ...current,
+                                    [image.path]: true,
+                                  };
+                                });
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </figure>
-              );
-            })}
+                  </figure>
+                );
+              })}
+            </div>
           </div>
         )}
 
