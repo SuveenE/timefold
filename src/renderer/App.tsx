@@ -277,28 +277,6 @@ function Home() {
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
-      <header className="library-header">
-        <div className="window-controls" aria-hidden="true">
-          <span className="traffic-dot traffic-dot-close" />
-          <span className="traffic-dot traffic-dot-minimize" />
-          <span className="traffic-dot traffic-dot-expand" />
-        </div>
-
-        <div className="header-breadcrumb" aria-label="Current section">
-          <span className="header-breadcrumb-primary">My Library</span>
-          <span className="header-breadcrumb-separator">/</span>
-          <span className="header-breadcrumb-secondary">Recent</span>
-        </div>
-
-        <button
-          type="button"
-          className="header-utility"
-          aria-label="Open library controls"
-        >
-          <span className="orbit-icon" aria-hidden="true" />
-        </button>
-      </header>
-
       <section className="cloud-viewport" aria-live="polite">
         {renderableImages.length > 0 && (
           <div className="photo-cloud">
@@ -360,6 +338,47 @@ function Home() {
       </section>
 
       <footer className="control-dock">
+        <div className="dock-header-row">
+          <div className="dock-heading" aria-label="Current section">
+            <div className="window-controls" aria-hidden="true">
+              <span className="traffic-dot traffic-dot-close" />
+              <span className="traffic-dot traffic-dot-minimize" />
+              <span className="traffic-dot traffic-dot-expand" />
+            </div>
+            <div className="header-breadcrumb">
+              <span className="header-breadcrumb-primary">My Library</span>
+              <span className="header-breadcrumb-separator">/</span>
+              <span className="header-breadcrumb-secondary">Recent</span>
+            </div>
+          </div>
+
+          <div className="dock-actions">
+            <button
+              type="button"
+              className="header-utility"
+              aria-label="Open library controls"
+            >
+              <span className="orbit-icon" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={handleReload}
+              disabled={!activeFolder || isLoading}
+            >
+              reload
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleFolderSelect}
+              disabled={isSelecting}
+            >
+              {isSelecting ? 'opening...' : 'choose folder'}
+            </button>
+          </div>
+        </div>
+
         <div className="chip-row">
           {filterChips.map((chip) => (
             <button
@@ -373,25 +392,6 @@ function Home() {
               <small>{chip.count}</small>
             </button>
           ))}
-        </div>
-
-        <div className="dock-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={handleReload}
-            disabled={!activeFolder || isLoading}
-          >
-            reload
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={handleFolderSelect}
-            disabled={isSelecting}
-          >
-            {isSelecting ? 'opening...' : 'choose folder'}
-          </button>
         </div>
 
         <section className="dock-meta">
