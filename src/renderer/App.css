@@ -219,6 +219,7 @@ body {
   inset: 0;
   will-change: transform;
   transform: translate3d(0, 0, 0);
+  transform-origin: 50% 50%;
   user-select: none;
 }
 
@@ -232,6 +233,8 @@ body {
   position: absolute;
   margin: 0;
   pointer-events: none;
+  transform: translate(-50%, -50%)
+    rotate(calc(var(--cloud-rotation, 0deg) * -1));
 }
 
 .orbit-track {

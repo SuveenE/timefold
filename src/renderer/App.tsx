@@ -115,9 +115,7 @@ const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
 const LAST_ACTIVE_FOLDER_STORAGE_KEY = 'timefold.lastActiveFolder';
-const CLOUD_DRAG_MIN_OFFSET = -640;
-const CLOUD_DRAG_MAX_OFFSET = 640;
-const CLOUD_DRAG_EDGE_RESISTANCE = 0.32;
+const CLOUD_DRAG_ROTATION_PER_PIXEL = 0.18;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -361,25 +359,10 @@ function Home({
       return;
     }
 
-    cloudNode.style.transform = `translate3d(${nextX.toFixed(2)}px, 0, 0)`;
-  };
-
-  const applyCloudEdgeResistance = (value: number): number => {
-    if (value < CLOUD_DRAG_MIN_OFFSET) {
-      return (
-        CLOUD_DRAG_MIN_OFFSET +
-        (value - CLOUD_DRAG_MIN_OFFSET) * CLOUD_DRAG_EDGE_RESISTANCE
-      );
-    }
-
-    if (value > CLOUD_DRAG_MAX_OFFSET) {
-      return (
-        CLOUD_DRAG_MAX_OFFSET +
-        (value - CLOUD_DRAG_MAX_OFFSET) * CLOUD_DRAG_EDGE_RESISTANCE
-      );
-    }
-
-    return value;
+    const rotationValue = nextX.toFixed(2);
+    const rotation = `${rotationValue}deg`;
+    cloudNode.style.setProperty('--cloud-rotation', rotation);
+    cloudNode.style.transform = `translate3d(0, 0, 0) rotate(${rotation})`;
   };
 
   const runCloudFrame = (timestamp: number) => {
@@ -396,43 +379,31 @@ function Home({
     if (!motion.dragging) {
       motion.target += motion.velocity * elapsed;
       motion.velocity *= 0.9 ** frameFactor;
-
-      if (
-        motion.target < CLOUD_DRAG_MIN_OFFSET ||
-        motion.target > CLOUD_DRAG_MAX_OFFSET
-      ) {
-        const boundedTarget = clamp(
-          motion.target,
-          CLOUD_DRAG_MIN_OFFSET,
-          CLOUD_DRAG_MAX_OFFSET,
-        );
-        const correction = boundedTarget - motion.target;
-        motion.velocity += correction * 0.0032 * elapsed;
-      }
     }
 
-    const follow = 1 - 0.24 ** frameFactor;
+    const follow = 1 - 0.2 ** frameFactor;
     motion.position += (motion.target - motion.position) * follow;
+
+    if (Math.abs(motion.position) > 1080) {
+      const turns = Math.trunc(motion.position / 360);
+      const normalizedOffset = turns * 360;
+      motion.position -= normalizedOffset;
+      motion.target -= normalizedOffset;
+    }
+
     renderCloudPosition(motion.position);
 
     const shouldContinue =
       motion.dragging ||
-      Math.abs(motion.target - motion.position) > 0.15 ||
-      Math.abs(motion.velocity) > 0.012 ||
-      motion.target < CLOUD_DRAG_MIN_OFFSET - 0.15 ||
-      motion.target > CLOUD_DRAG_MAX_OFFSET + 0.15;
+      Math.abs(motion.target - motion.position) > 0.04 ||
+      Math.abs(motion.velocity) > 0.002;
 
     if (shouldContinue) {
       motion.rafId = window.requestAnimationFrame(runCloudFrame);
       return;
     }
 
-    motion.target = clamp(
-      motion.target,
-      CLOUD_DRAG_MIN_OFFSET,
-      CLOUD_DRAG_MAX_OFFSET,
-    );
-    motion.position = motion.target;
+    motion.target = motion.position;
     motion.velocity = 0;
     motion.lastFrameTime = 0;
     motion.rafId = 0;
@@ -478,10 +449,11 @@ function Home({
       8,
       42,
     );
+    const deltaRotation = deltaX * CLOUD_DRAG_ROTATION_PER_PIXEL;
     motion.lastX = event.clientX;
     motion.lastPointerTime = event.timeStamp;
-    motion.target = applyCloudEdgeResistance(motion.target + deltaX);
-    motion.velocity = deltaX / elapsedPointer;
+    motion.target += deltaRotation;
+    motion.velocity = deltaRotation / elapsedPointer;
 
     startCloudAnimation();
   };
@@ -559,7 +531,6 @@ function Home({
                   top: `${layout.top}%`,
                   width: `${layout.width}px`,
                   zIndex: layout.zIndex,
-                  transform: 'translate(-50%, -50%)',
                   '--orbit-x': `${layout.orbitX}px`,
                   '--orbit-y': `${layout.orbitY}px`,
                   '--orbit-duration': `${layout.orbitDuration}s`,
