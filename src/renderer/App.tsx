@@ -89,7 +89,6 @@ type HomeProps = {
 };
 
 type ExploreProps = {
-  activeFolder: string | null;
   images: ListedImage[];
 };
 
@@ -494,7 +493,7 @@ function Home({
   );
 }
 
-function Explore({ activeFolder, images }: ExploreProps) {
+function Explore({ images }: ExploreProps) {
   const navigate = useNavigate();
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA);
   const [isDragging, setIsDragging] = useState(false);
@@ -581,6 +580,20 @@ function Explore({ activeFolder, images }: ExploreProps) {
     });
   };
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        navigate('/');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [navigate]);
+
   return (
     <main className="gallery-screen explore-screen">
       <div className="nebula" aria-hidden="true" />
@@ -643,39 +656,6 @@ function Explore({ activeFolder, images }: ExploreProps) {
           </div>
         )}
       </section>
-
-      <footer className="control-dock explore-dock">
-        <div className="dock-actions explore-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => navigate('/')}
-          >
-            back
-          </button>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => setCamera(INITIAL_CAMERA)}
-            disabled={images.length === 0}
-          >
-            reset view
-          </button>
-        </div>
-
-        <section className="dock-meta">
-          <p className="folder-name">
-            {activeFolder ? getFolderName(activeFolder) : 'No folder selected'}
-          </p>
-          <p className="folder-path">
-            {activeFolder || 'Return and choose a local folder'}
-          </p>
-          <p className="hint">
-            {images.length} images loaded. Drag to orbit the space, scroll to
-            zoom.
-          </p>
-        </section>
-      </footer>
     </main>
   );
 }
@@ -768,10 +748,7 @@ function AppRoutes() {
           />
         }
       />
-      <Route
-        path="/explore"
-        element={<Explore activeFolder={activeFolder} images={images} />}
-      />
+      <Route path="/explore" element={<Explore images={images} />} />
     </Routes>
   );
 }

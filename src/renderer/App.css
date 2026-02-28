@@ -119,13 +119,13 @@ body {
 }
 
 .explore-screen {
-  padding-bottom: 16px;
+  padding-bottom: 0;
 }
 
 .explore-stage {
   position: relative;
   flex: 1;
-  margin: 16px 18px 0;
+  margin: 16px 18px 18px;
   border-radius: 26px;
   overflow: hidden;
   perspective: 1700px;
@@ -193,14 +193,6 @@ body {
 
 .explore-empty {
   top: 50%;
-}
-
-.explore-dock {
-  margin-bottom: 6px;
-}
-
-.explore-actions {
-  justify-content: flex-start;
 }
 
 .status-panel {
