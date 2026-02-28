@@ -69,21 +69,8 @@ export default function ImageCardModal({
         </button>
 
         <section className="image-card-details">
-          <h2 className="image-card-title">{image.name}</h2>
-
-          <dl className="image-card-meta">
-            <div>
-              <dt>Date</dt>
-              <dd>{formatCapturedAt(image.capturedAt)}</dd>
-            </div>
-            <div>
-              <dt>Country</dt>
-              <dd>{image.country?.trim() || 'Unknown country'}</dd>
-            </div>
-          </dl>
-
           <div className="image-card-splat">
-            <h3>Gaussian splat</h3>
+            <h3>Explore world</h3>
 
             {isSplatLoading ? (
               <p className="image-card-splat-note">
@@ -97,8 +84,6 @@ export default function ImageCardModal({
 
             {!isSplatLoading && !splatLookupError && splat ? (
               <>
-                <p className="image-card-splat-note">{splat.name}</p>
-                <p className="image-card-splat-path">{splat.path}</p>
                 <SplatViewer splat={splat} />
                 {isPlySplat && splat.previewText ? (
                   <pre className="image-card-splat-preview">
@@ -131,23 +116,40 @@ export default function ImageCardModal({
           </div>
         </section>
 
-        <div
-          className={`image-card-media ${
-            isImageLoading ? 'is-loading' : 'is-loaded'
-          }`}
-        >
-          {isImageLoading ? (
-            <span className="media-loading-indicator" aria-hidden="true">
-              Loading...
-            </span>
-          ) : null}
-          <img
-            src={image.url}
-            alt={image.name}
-            onLoad={() => setIsImageLoading(false)}
-            onError={() => setIsImageLoading(false)}
-          />
-        </div>
+        <aside className="image-card-side">
+          <div
+            className={`image-card-media ${
+              isImageLoading ? 'is-loading' : 'is-loaded'
+            }`}
+          >
+            {isImageLoading ? (
+              <span className="media-loading-indicator" aria-hidden="true">
+                Loading...
+              </span>
+            ) : null}
+            <img
+              src={image.url}
+              alt={image.name}
+              onLoad={() => setIsImageLoading(false)}
+              onError={() => setIsImageLoading(false)}
+            />
+          </div>
+
+          <dl className="image-card-side-meta">
+            <div>
+              <dt>File name</dt>
+              <dd>{image.name}</dd>
+            </div>
+            <div>
+              <dt>Local date</dt>
+              <dd>{formatCapturedAt(image.capturedAt)}</dd>
+            </div>
+            <div>
+              <dt>Country</dt>
+              <dd>{image.country?.trim() || 'Unknown country'}</dd>
+            </div>
+          </dl>
+        </aside>
       </article>
     </div>
   );

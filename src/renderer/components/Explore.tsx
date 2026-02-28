@@ -25,7 +25,8 @@ const TIME_CLUSTER_BASE_SPREAD = 14;
 const TIME_CLUSTER_SPIRAL_SPREAD = 20;
 const TIME_CLUSTER_COMPRESSION_MIN = 0.82;
 const EXPLORE_WORLD_BASE_OFFSET_X = -24;
-const EXPLORE_WORLD_BASE_OFFSET_Y = -18;
+// Move the explore cloud upward by ~3cm (about 113px at 96dpi).
+const EXPLORE_WORLD_BASE_OFFSET_Y = -131;
 const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
 const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
 

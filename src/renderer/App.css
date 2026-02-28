@@ -1057,12 +1057,12 @@ body {
 .image-card {
   position: relative;
   z-index: 1;
-  width: min(1040px, calc(100% - 20px));
-  max-height: min(90vh, 920px);
+  width: min(1280px, calc(100% - 20px));
+  max-height: min(94vh, 1040px);
   display: grid;
-  grid-template-columns: minmax(420px, 1.45fr) minmax(220px, 0.72fr);
-  gap: 18px;
-  padding: 52px 16px 16px;
+  grid-template-columns: minmax(640px, 4fr) minmax(220px, 1fr);
+  gap: 20px;
+  padding: 52px 20px 20px;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(8, 8, 12, 0.94);
@@ -1098,8 +1098,6 @@ body {
 
 .image-card-media {
   position: relative;
-  order: 2;
-  align-self: start;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1117,6 +1115,38 @@ body {
   object-fit: contain;
   opacity: 0;
   transition: opacity 180ms ease;
+}
+
+.image-card-side {
+  order: 2;
+  align-self: start;
+  display: grid;
+  gap: 10px;
+}
+
+.image-card-side-meta {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.image-card-side-meta div {
+  display: grid;
+  gap: 2px;
+}
+
+.image-card-side-meta dt {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(240, 240, 240, 0.58);
+}
+
+.image-card-side-meta dd {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: rgba(246, 246, 246, 0.9);
 }
 
 .photo-frame.is-loaded img,
@@ -1466,6 +1496,10 @@ body {
     max-height: 92vh;
   }
 
+  .image-card-side {
+    gap: 8px;
+  }
+
   .image-card-media img {
     max-height: 46vh;
   }
@@ -1579,5 +1613,13 @@ body {
 
   .image-card-details {
     padding-right: 2px;
+  }
+
+  .image-card-side-meta dt {
+    font-size: 0.68rem;
+  }
+
+  .image-card-side-meta dd {
+    font-size: 0.82rem;
   }
 }
