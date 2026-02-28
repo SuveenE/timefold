@@ -191,6 +191,19 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
     setLoadedImagePaths({});
   }, [images]);
 
+  const markImageLoaded = useCallback((path: string) => {
+    setLoadedImagePaths((current) => {
+      if (current[path]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [path]: true,
+      };
+    });
+  }, []);
+
   const exploreItems = useMemo<ExploreSceneItem[]>(() => {
     const items = images.map((image, index) => {
       return {
@@ -730,30 +743,18 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                         alt=""
                         loading="lazy"
                         draggable={false}
-                        onLoad={() => {
-                          setLoadedImagePaths((current) => {
-                            if (current[image.path]) {
-                              return current;
-                            }
+                        ref={(node) => {
+                          if (!node) {
+                            return;
+                          }
 
-                            return {
-                              ...current,
-                              [image.path]: true,
-                            };
-                          });
+                          // Cached/local images can already be complete before onLoad fires.
+                          if (node.complete && node.naturalWidth > 0) {
+                            markImageLoaded(image.path);
+                          }
                         }}
-                        onError={() => {
-                          setLoadedImagePaths((current) => {
-                            if (current[image.path]) {
-                              return current;
-                            }
-
-                            return {
-                              ...current,
-                              [image.path]: true,
-                            };
-                          });
-                        }}
+                        onLoad={() => markImageLoaded(image.path)}
+                        onError={() => markImageLoaded(image.path)}
                       />
                     </button>
                     {mode === 'location' ? (
