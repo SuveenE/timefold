@@ -130,6 +130,13 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let orbitRadius = 3.2;
     let orbitYaw = 0.42;
     let orbitPitch = 0.14;
+    let minOrbitRadius = 0.8;
+    let maxOrbitRadius = 24;
+    let hasManualOrbitInput = false;
+    let isPointerDragging = false;
+    let activePointerId: number | null = null;
+    let pointerLastX = 0;
+    let pointerLastY = 0;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
@@ -148,6 +155,17 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     mountNode.appendChild(renderer.domElement);
+
+    const updateCameraFrustum = () => {
+      // Keep large real-world coordinate splats inside the camera frustum.
+      const safeNear = Math.max(0.01, orbitRadius / 2000);
+      const safeFar = Math.max(1200, orbitRadius * 6);
+      if (camera.near !== safeNear || camera.far !== safeFar) {
+        camera.near = safeNear;
+        camera.far = safeFar;
+        camera.updateProjectionMatrix();
+      }
+    };
 
     const updateSize = () => {
       const width = Math.max(1, mountNode.clientWidth);
@@ -174,8 +192,75 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         orbitTarget.copy(sphere.center);
         orbitRadius = Math.max(1.45, sphere.radius * 3.2);
         orbitPitch = 0.14;
+        minOrbitRadius = Math.max(0.35, sphere.radius * 0.22);
+        maxOrbitRadius = Math.max(minOrbitRadius * 2, sphere.radius * 14);
+        orbitRadius = clamp(orbitRadius, minOrbitRadius, maxOrbitRadius);
+        updateCameraFrustum();
       }
     };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.button !== 1 && event.button !== 2) {
+        return;
+      }
+      hasManualOrbitInput = true;
+      isPointerDragging = true;
+      activePointerId = event.pointerId;
+      pointerLastX = event.clientX;
+      pointerLastY = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!isPointerDragging || activePointerId !== event.pointerId) {
+        return;
+      }
+
+      const deltaX = event.clientX - pointerLastX;
+      const deltaY = event.clientY - pointerLastY;
+      pointerLastX = event.clientX;
+      pointerLastY = event.clientY;
+
+      orbitYaw -= deltaX * 0.006;
+      orbitPitch = clamp(orbitPitch - deltaY * 0.0045, -1.2, 1.2);
+      event.preventDefault();
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      if (activePointerId !== event.pointerId) {
+        return;
+      }
+
+      isPointerDragging = false;
+      activePointerId = null;
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      }
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      hasManualOrbitInput = true;
+      const zoomFactor = Math.exp(event.deltaY * 0.0016);
+      orbitRadius = clamp(
+        orbitRadius * zoomFactor,
+        minOrbitRadius,
+        maxOrbitRadius,
+      );
+      updateCameraFrustum();
+      event.preventDefault();
+    };
+
+    const onContextMenu = (event: Event) => {
+      event.preventDefault();
+    };
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onPointerUp);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
     const createPointFallback = async (
       sparkModule: SparkModuleLike,
@@ -282,8 +367,11 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       previousFrameTime = timeMs;
 
       if (loadedSplat || loadedPoints) {
-        orbitYaw += deltaTime * 0.16;
-        const pitch = clamp(orbitPitch, -0.45, 0.45);
+        if (!hasManualOrbitInput) {
+          orbitYaw += deltaTime * 0.16;
+        }
+        updateCameraFrustum();
+        const pitch = clamp(orbitPitch, -1.2, 1.2);
         const cosPitch = Math.cos(pitch);
 
         camera.position.set(
@@ -295,12 +383,24 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         camera.updateMatrixWorld();
 
         if (loadedSplat) {
-          loadedSplat.update({
-            time: timeMs / 1000,
-            deltaTime,
-            viewToWorld: camera.matrixWorld,
-            globalEdits: [],
-          });
+          try {
+            loadedSplat.update({
+              time: timeMs / 1000,
+              deltaTime,
+              viewToWorld: camera.matrixWorld,
+              globalEdits: [],
+            });
+          } catch {
+            // Spark update failed – remove the mesh so the loop can
+            // continue rendering any fallback content without retrying.
+            scene.remove(loadedSplat);
+            try {
+              loadedSplat.dispose();
+            } catch {
+              // best-effort disposal
+            }
+            loadedSplat = null;
+          }
         }
       }
 
@@ -343,6 +443,15 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
             mesh.dispose();
             return;
           }
+
+          // Verify the mesh can actually render before committing to it.
+          // Some environments allow WASM init but fail at runtime.
+          mesh.update({
+            time: 0,
+            deltaTime: 0,
+            viewToWorld: camera.matrixWorld,
+            globalEdits: [],
+          });
 
           loadedSplat = mesh;
           scene.add(mesh);
@@ -388,18 +497,22 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
             setIsViewerReady(true);
             return;
           } catch (fallbackError) {
-            const sparkMessage = toErrorMessage(sparkError);
-            const fallbackMessage = toErrorMessage(fallbackError);
-            setLoadError(
-              `Unable to render this \`.ply\`. Spark: ${sparkMessage}. Fallback: ${fallbackMessage}.`,
-            );
+            if (!isDisposed) {
+              const sparkMessage = toErrorMessage(sparkError);
+              const fallbackMessage = toErrorMessage(fallbackError);
+              setLoadError(
+                `Unable to render this \`.ply\`. Spark: ${sparkMessage}. Fallback: ${fallbackMessage}.`,
+              );
+            }
             return;
           }
         }
 
-        setLoadError(
-          `Unable to render this \`.ply\`: ${toErrorMessage(sparkError)}.`,
-        );
+        if (!isDisposed) {
+          setLoadError(
+            `Unable to render this \`.ply\`: ${toErrorMessage(sparkError)}.`,
+          );
+        }
       } catch (error) {
         if (!isDisposed) {
           setLoadError(
@@ -419,6 +532,12 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       isDisposed = true;
       window.cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+      renderer.domElement.removeEventListener('wheel', onWheel);
+      renderer.domElement.removeEventListener('contextmenu', onContextMenu);
 
       if (loadedSplat) {
         scene.remove(loadedSplat);
