@@ -1011,8 +1011,8 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
               ? mesh.getBoundingBox(true)
               : new THREE.Box3().setFromObject(mesh);
           applyOrbitFromBounds(sparkBounds, {
-            distanceMultiplier: 5.2,
-            minDistance: 2.8,
+            distanceMultiplier: 1.4,
+            minDistance: 0.72,
             initialPitch: 0.06,
           });
           setLoadInfo(null);
