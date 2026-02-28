@@ -142,6 +142,16 @@ const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
 };
 
+const isInteractivePointerTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return Boolean(
+    target.closest('button, a, input, select, textarea, [role="button"]'),
+  );
+};
+
 const buildMetadataLocation = (albumLocation: string): string => {
   const normalizedPath = albumLocation.replace(/[\\/]+$/, '');
   const separator =
@@ -349,6 +359,12 @@ function useGlobeMotion({
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!enabled) {
+        return;
+      }
+      if (event.button !== 0) {
+        return;
+      }
+      if (isInteractivePointerTarget(event.target)) {
         return;
       }
 
