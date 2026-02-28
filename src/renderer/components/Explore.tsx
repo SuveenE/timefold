@@ -179,10 +179,17 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
   const exploreStageRef = useRef<HTMLElement | null>(null);
   const exploreSidebarRef = useRef<HTMLElement | null>(null);
   const exploreWorldRef = useRef<HTMLDivElement | null>(null);
+  const [loadedImagePaths, setLoadedImagePaths] = useState<
+    Record<string, true>
+  >({});
   const [exploreFrame, setExploreFrame] = useState({
     offsetX: 0,
     fitZoom: -220,
   });
+
+  useEffect(() => {
+    setLoadedImagePaths({});
+  }, [images]);
 
   const exploreItems = useMemo<ExploreSceneItem[]>(() => {
     const items = images.map((image, index) => {
@@ -675,6 +682,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                   })
                 : null}
               {activeSceneItems.map(({ image, layout }) => {
+                const isImageLoaded = Boolean(loadedImagePaths[image.path]);
                 const cardStyle: ExploreCardStyle = {
                   left: '50%',
                   top: '50%',
@@ -696,7 +704,9 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                   >
                     <button
                       type="button"
-                      className="explore-card-frame explore-card-button"
+                      className={`explore-card-frame explore-card-button ${
+                        isImageLoaded ? 'is-loaded' : 'is-loading'
+                      }`}
                       aria-label={`Open details for ${image.name}`}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -707,11 +717,43 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                         onImageSelect(image);
                       }}
                     >
+                      {!isImageLoaded ? (
+                        <span
+                          className="media-loading-indicator"
+                          aria-hidden="true"
+                        >
+                          Loading...
+                        </span>
+                      ) : null}
                       <img
                         src={image.url}
                         alt=""
                         loading="lazy"
                         draggable={false}
+                        onLoad={() => {
+                          setLoadedImagePaths((current) => {
+                            if (current[image.path]) {
+                              return current;
+                            }
+
+                            return {
+                              ...current,
+                              [image.path]: true,
+                            };
+                          });
+                        }}
+                        onError={() => {
+                          setLoadedImagePaths((current) => {
+                            if (current[image.path]) {
+                              return current;
+                            }
+
+                            return {
+                              ...current,
+                              [image.path]: true,
+                            };
+                          });
+                        }}
                       />
                     </button>
                     {mode === 'location' ? (

@@ -46,9 +46,13 @@ export default function Home({
   const [failedImagePaths, setFailedImagePaths] = useState<
     Record<string, true>
   >({});
+  const [loadedImagePaths, setLoadedImagePaths] = useState<
+    Record<string, true>
+  >({});
 
   useEffect(() => {
     setFailedImagePaths({});
+    setLoadedImagePaths({});
   }, [images]);
 
   const extensionCounts = useMemo(() => {
@@ -230,6 +234,7 @@ export default function Home({
           <div className="cloud-drag-layer" ref={cloudLayerRef}>
             <div className="photo-cloud">
               {cloudItems.map(({ image, layout }) => {
+                const isImageLoaded = Boolean(loadedImagePaths[image.path]);
                 const tileStyle: TileStyle = {
                   left: '50%',
                   top: '47%',
@@ -261,7 +266,9 @@ export default function Home({
                         <div className="photo-motion">
                           <button
                             type="button"
-                            className="photo-frame photo-frame-button"
+                            className={`photo-frame photo-frame-button ${
+                              isImageLoaded ? 'is-loaded' : 'is-loading'
+                            }`}
                             aria-label={`Open details for ${image.name}`}
                             onClick={(event) => {
                               event.stopPropagation();
@@ -272,13 +279,43 @@ export default function Home({
                               onImageSelect(image);
                             }}
                           >
+                            {!isImageLoaded ? (
+                              <span
+                                className="media-loading-indicator"
+                                aria-hidden="true"
+                              >
+                                Loading...
+                              </span>
+                            ) : null}
                             <img
                               src={image.url}
                               alt=""
                               loading="lazy"
                               draggable={false}
+                              onLoad={() => {
+                                setLoadedImagePaths((current) => {
+                                  if (current[image.path]) {
+                                    return current;
+                                  }
+
+                                  return {
+                                    ...current,
+                                    [image.path]: true,
+                                  };
+                                });
+                              }}
                               onError={() => {
                                 setFailedImagePaths((current) => {
+                                  if (current[image.path]) {
+                                    return current;
+                                  }
+
+                                  return {
+                                    ...current,
+                                    [image.path]: true,
+                                  };
+                                });
+                                setLoadedImagePaths((current) => {
                                   if (current[image.path]) {
                                     return current;
                                   }
