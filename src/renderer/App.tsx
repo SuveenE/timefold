@@ -109,6 +109,7 @@ type CameraState = {
 
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
+const SETTINGS_STORAGE_KEY = 'timefold.settings';
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -120,6 +121,13 @@ const INITIAL_CAMERA: CameraState = {
 
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
+};
+
+const buildMetadataLocation = (albumLocation: string): string => {
+  const normalizedPath = albumLocation.replace(/[\\/]+$/, '');
+  const separator =
+    normalizedPath.includes('\\') && !normalizedPath.includes('/') ? '\\' : '/';
+  return `${normalizedPath}${separator}metadata`;
 };
 
 const createSeed = (input: string): number => {
@@ -666,33 +674,19 @@ function Settings({ settings, onSettingsChange }: SettingsProps) {
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
-      <header className="library-header">
-        <div className="window-controls" aria-hidden="true">
-          <span className="traffic-dot traffic-dot-close" />
-          <span className="traffic-dot traffic-dot-minimize" />
-          <span className="traffic-dot traffic-dot-expand" />
-        </div>
-
-        <div className="header-breadcrumb" aria-label="Current section">
-          <span className="header-breadcrumb-primary">Settings</span>
-          <span className="header-breadcrumb-separator">/</span>
-          <span className="header-breadcrumb-secondary">Profile</span>
-        </div>
-
-        <button
-          type="button"
-          className="ghost-button settings-back"
-          onClick={() => navigate('/')}
-        >
-          back
-        </button>
-      </header>
-
       <section className="settings-body">
         <form
           className="settings-form"
           onSubmit={(event) => event.preventDefault()}
         >
+          <button
+            type="button"
+            className="ghost-button settings-back"
+            onClick={() => navigate('/')}
+          >
+            back
+          </button>
+
           <label className="settings-field" htmlFor="photo-album-location">
             Photo album location
             <input
@@ -746,6 +740,30 @@ function AppRoutes() {
     yourName: '',
   });
 
+  useEffect(() => {
+    const rawSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+
+    if (!rawSettings) {
+      return;
+    }
+
+    try {
+      const parsedSettings = JSON.parse(rawSettings) as Partial<SettingsValues>;
+      setSettings((current) => ({
+        ...current,
+        photoAlbumLocation: parsedSettings.photoAlbumLocation ?? '',
+        metadataLocation: parsedSettings.metadataLocation ?? '',
+        yourName: parsedSettings.yourName ?? '',
+      }));
+    } catch {
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [settings]);
+
   const loadFolderImages = async (folderPath: string) => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -778,6 +796,17 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
+      setSettings((current) => {
+        if (current.photoAlbumLocation.trim().length > 0) {
+          return current;
+        }
+
+        return {
+          ...current,
+          photoAlbumLocation: selectedFolder,
+          metadataLocation: buildMetadataLocation(selectedFolder),
+        };
+      });
       await loadFolderImages(selectedFolder);
     } finally {
       setIsSelecting(false);
