@@ -51,6 +51,9 @@ type TileStyle = CSSProperties & {
   '--tile-rotation': string;
   '--tile-opacity': string;
   '--tile-blur': string;
+  '--tile-focus-opacity': string;
+  '--tile-focus-blur': string;
+  '--tile-depth-scale': string;
 };
 
 type ExploreLayout = {
@@ -119,6 +122,9 @@ const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
 const LAST_ACTIVE_FOLDER_STORAGE_KEY = 'timefold.lastActiveFolder';
 const CLOUD_DRAG_ROTATION_PER_PIXEL = 0.18;
+const CLOUD_ZOOM_MIN = 0;
+const CLOUD_ZOOM_MAX = 320;
+const CLOUD_ZOOM_PER_WHEEL = 0.42;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -240,6 +246,10 @@ function Home({
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [isCloudDragging, setIsCloudDragging] = useState(false);
   const cloudLayerRef = useRef<HTMLDivElement | null>(null);
+  const tileNodeRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const cloudItemsRef = useRef<
+    Array<{ image: ListedImage; layout: ClusterLayout }>
+  >([]);
   const cloudMotion = useRef({
     dragging: false,
     pointerId: -1,
@@ -249,6 +259,8 @@ function Home({
     position: 0,
     target: 0,
     velocity: 0,
+    zoom: 0,
+    zoomTarget: 0,
     rafId: 0,
   });
   const [failedImagePaths, setFailedImagePaths] = useState<
@@ -361,18 +373,80 @@ function Home({
     });
   }, [renderableImages]);
 
-  const renderCloudPosition = (nextX: number) => {
-    const cloudNode = cloudLayerRef.current;
+  const renderCloudState = useCallback(
+    (rotationDeg: number, zoomDepth: number) => {
+      const cloudNode = cloudLayerRef.current;
 
-    if (!cloudNode) {
-      return;
-    }
+      if (!cloudNode) {
+        return;
+      }
 
-    const rotationValue = nextX.toFixed(2);
-    const rotation = `${rotationValue}deg`;
-    cloudNode.style.setProperty('--cloud-rotation-y', rotation);
-    cloudNode.style.transform = `translate3d(0, 0, 0) rotateY(${rotation})`;
-  };
+      const rotationValue = rotationDeg.toFixed(2);
+      const rotation = `${rotationValue}deg`;
+      const zoomValue = `${zoomDepth.toFixed(2)}px`;
+      cloudNode.style.setProperty('--cloud-rotation-y', rotation);
+      cloudNode.style.setProperty('--cloud-zoom-z', zoomValue);
+      cloudNode.style.transform = `translate3d(0, 0, 0) rotateY(${rotation})`;
+    },
+    [],
+  );
+
+  const updateTileDepthStyles = useCallback(
+    (rotationDeg: number, zoomDepth: number) => {
+      const rotationRad = (rotationDeg * Math.PI) / 180;
+      const focusPlane = 235 - zoomDepth * 0.9;
+      const focusSpread = 190;
+
+      cloudItemsRef.current.forEach(({ image, layout }) => {
+        const tileNode = tileNodeRefs.current.get(image.path);
+
+        if (!tileNode) {
+          return;
+        }
+
+        const ringAngleRad = (layout.ringAngle * Math.PI) / 180;
+        const worldZ =
+          Math.cos(ringAngleRad + rotationRad) * layout.ringRadius - zoomDepth;
+        const depthNorm = clamp((worldZ + 520) / 1040, 0, 1);
+        const focus = clamp(
+          1 - Math.abs(worldZ - focusPlane) / focusSpread,
+          0,
+          1,
+        );
+        const nearFade =
+          worldZ > 340 ? clamp(1 - (worldZ - 340) / 220, 0.22, 1) : 1;
+        const visualOpacity = clamp(
+          layout.opacity *
+            (0.38 + focus * 0.62) *
+            (0.56 + depthNorm * 0.44) *
+            nearFade,
+          0.16,
+          1,
+        );
+        const visualBlur = clamp(
+          layout.blur + (1 - focus) * 1.25 + (1 - depthNorm) * 0.34,
+          0,
+          2.8,
+        );
+        const depthScale = clamp(
+          0.92 + focus * 0.12 + depthNorm * 0.05 - (1 - nearFade) * 0.06,
+          0.84,
+          1.15,
+        );
+
+        tileNode.style.setProperty(
+          '--tile-focus-opacity',
+          visualOpacity.toFixed(3),
+        );
+        tileNode.style.setProperty(
+          '--tile-focus-blur',
+          `${visualBlur.toFixed(2)}px`,
+        );
+        tileNode.style.setProperty('--tile-depth-scale', depthScale.toFixed(3));
+      });
+    },
+    [],
+  );
 
   const runCloudFrame = (timestamp: number) => {
     const motion = cloudMotion.current;
@@ -390,6 +464,9 @@ function Home({
       motion.velocity *= 0.9 ** frameFactor;
     }
 
+    const zoomFollow = 1 - 0.2 ** frameFactor;
+    motion.zoom += (motion.zoomTarget - motion.zoom) * zoomFollow;
+
     const follow = 1 - 0.2 ** frameFactor;
     motion.position += (motion.target - motion.position) * follow;
 
@@ -400,12 +477,14 @@ function Home({
       motion.target -= normalizedOffset;
     }
 
-    renderCloudPosition(motion.position);
+    renderCloudState(motion.position, motion.zoom);
+    updateTileDepthStyles(motion.position, motion.zoom);
 
     const shouldContinue =
       motion.dragging ||
       Math.abs(motion.target - motion.position) > 0.04 ||
-      Math.abs(motion.velocity) > 0.002;
+      Math.abs(motion.velocity) > 0.002 ||
+      Math.abs(motion.zoomTarget - motion.zoom) > 0.08;
 
     if (shouldContinue) {
       motion.rafId = window.requestAnimationFrame(runCloudFrame);
@@ -413,10 +492,12 @@ function Home({
     }
 
     motion.target = motion.position;
+    motion.zoom = motion.zoomTarget;
     motion.velocity = 0;
     motion.lastFrameTime = 0;
     motion.rafId = 0;
-    renderCloudPosition(motion.position);
+    renderCloudState(motion.position, motion.zoom);
+    updateTileDepthStyles(motion.position, motion.zoom);
   };
 
   const startCloudAnimation = () => {
@@ -484,6 +565,34 @@ function Home({
     }
   };
 
+  const handleCloudWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    if (renderableImages.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const motion = cloudMotion.current;
+    motion.zoomTarget = clamp(
+      motion.zoomTarget - event.deltaY * CLOUD_ZOOM_PER_WHEEL,
+      CLOUD_ZOOM_MIN,
+      CLOUD_ZOOM_MAX,
+    );
+    startCloudAnimation();
+  };
+
+  useEffect(() => {
+    cloudItemsRef.current = cloudItems;
+    const rafId = window.requestAnimationFrame(() => {
+      const motion = cloudMotion.current;
+      renderCloudState(motion.position, motion.zoom);
+      updateTileDepthStyles(motion.position, motion.zoom);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [cloudItems, renderCloudState, updateTileDepthStyles]);
+
   useEffect(() => {
     if (renderableImages.length > 0) {
       return;
@@ -503,10 +612,12 @@ function Home({
     motion.position = 0;
     motion.target = 0;
     motion.velocity = 0;
+    motion.zoom = 0;
+    motion.zoomTarget = 0;
     motion.rafId = 0;
-    renderCloudPosition(0);
+    renderCloudState(0, 0);
     setIsCloudDragging(false);
-  }, [renderableImages.length]);
+  }, [renderCloudState, renderableImages.length]);
 
   useEffect(() => {
     const motion = cloudMotion.current;
@@ -529,6 +640,7 @@ function Home({
         onPointerMove={updateCloudDrag}
         onPointerUp={endCloudDrag}
         onPointerCancel={endCloudDrag}
+        onWheel={handleCloudWheel}
         aria-live="polite"
       >
         {renderableImages.length > 0 && (
@@ -553,6 +665,9 @@ function Home({
                   '--tile-rotation': `${layout.rotation}deg`,
                   '--tile-opacity': `${layout.opacity}`,
                   '--tile-blur': `${layout.blur}px`,
+                  '--tile-focus-opacity': `${layout.opacity}`,
+                  '--tile-focus-blur': `${layout.blur}px`,
+                  '--tile-depth-scale': '1',
                 };
 
                 return (
@@ -560,6 +675,14 @@ function Home({
                     key={image.path}
                     className="photo-tile"
                     style={tileStyle}
+                    ref={(node) => {
+                      if (node) {
+                        tileNodeRefs.current.set(image.path, node);
+                        return;
+                      }
+
+                      tileNodeRefs.current.delete(image.path);
+                    }}
                   >
                     <div className="orbit-track">
                       <div className="orbit-orient">

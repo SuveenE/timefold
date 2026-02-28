@@ -241,7 +241,11 @@ body {
   transform:
     translate(-50%, -50%)
     rotateY(var(--ring-angle, 0deg))
-    translate3d(0, var(--ring-y, 0px), var(--ring-radius, 0px))
+    translate3d(
+      0,
+      var(--ring-y, 0px),
+      calc(var(--ring-radius, 0px) - var(--cloud-zoom-z, 0px))
+    )
     rotateY(calc(var(--cloud-rotation-y, 0deg) * -1))
     rotateY(calc(var(--ring-angle, 0deg) * -1));
 }
@@ -263,14 +267,15 @@ body {
 
 .photo-frame {
   border-radius: 8px;
-  transform: rotate(var(--tile-rotation, 0deg));
+  transform: rotate(var(--tile-rotation, 0deg))
+    scale(var(--tile-depth-scale, 1));
   transform-origin: center;
   backface-visibility: hidden;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: #121212;
-  opacity: var(--tile-opacity, 0.9);
-  filter: blur(var(--tile-blur, 0px));
+  opacity: var(--tile-focus-opacity, var(--tile-opacity, 0.9));
+  filter: blur(var(--tile-focus-blur, var(--tile-blur, 0px)));
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.08),
