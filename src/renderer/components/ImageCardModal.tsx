@@ -30,6 +30,20 @@ const AI_ATTRIBUTE_FIELDS: {
   { key: 'ocrText', label: 'OCR text' },
 ];
 
+const WORLD_LABS_URL_BY_IMAGE_NAME: Record<string, string> = {
+  'img_3760 2.jpg':
+    'https://marble.worldlabs.ai/world/165311d8-f495-4f5c-a4a3-f532d6a6747f',
+  'img_0028.heic':
+    'https://marble.worldlabs.ai/world/421b18d5-daa3-472d-ba13-53c3d77ff099',
+  'img_1757.heic':
+    'https://marble.worldlabs.ai/world/ec6fda8c-ba48-43cc-99a9-86a8919a52de',
+};
+
+const getWorldLabsWorldUrl = (imageName: string): string | null => {
+  const normalizedImageName = imageName.trim().toLowerCase();
+  return WORLD_LABS_URL_BY_IMAGE_NAME[normalizedImageName] ?? null;
+};
+
 const formatAttributeValues = (values: string[]): string | null => {
   const cleanedValues = values
     .map((value) => value.trim())
@@ -82,6 +96,7 @@ export default function ImageCardModal({
   }
 
   const expectedSplatName = buildExpectedSplatName(image.name);
+  const worldLabsWorldUrl = getWorldLabsWorldUrl(image.name);
   const isPlySplat = Boolean(splat && /\.ply$/i.test(splat.name));
   const baseRows: MetadataRow[] = [
     {
@@ -174,7 +189,20 @@ export default function ImageCardModal({
                 ) : null}
                 {!isPlySplat ? (
                   <p className="image-card-splat-note">
-                    Preview text is unavailable for `.spz` splats.
+                    Explore on the World Labs website for the best experience.
+                    {worldLabsWorldUrl ? (
+                      <>
+                        {' '}
+                        <a
+                          className="image-card-splat-link"
+                          href={worldLabsWorldUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open world
+                        </a>
+                      </>
+                    ) : null}
                   </p>
                 ) : null}
                 {isPlySplat && splat.isBinary ? (

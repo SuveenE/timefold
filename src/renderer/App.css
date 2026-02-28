@@ -830,6 +830,35 @@ body {
   line-height: 1.45;
 }
 
+.status-brand {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-logo {
+  width: clamp(72px, 10vw, 108px);
+  height: clamp(72px, 10vw, 108px);
+  object-fit: contain;
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, 0.38));
+}
+
+.status-brand-name {
+  margin: 0;
+  font-size: clamp(1.5rem, 3.8vw, 2.45rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: rgba(249, 249, 249, 0.98);
+}
+
+.status-brand-copy {
+  margin: 0;
+  font-size: clamp(0.95rem, 1.8vw, 1.08rem);
+  letter-spacing: 0.01em;
+  color: rgba(235, 235, 235, 0.84);
+}
+
 .control-dock {
   position: relative;
   z-index: 5;
@@ -1296,6 +1325,23 @@ body {
 
 .image-card-splat-note + .image-card-splat-note {
   margin-top: 6px;
+}
+
+.image-card-splat-link {
+  color: rgba(171, 209, 255, 0.98);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.image-card-splat-link:hover {
+  color: rgba(198, 224, 255, 1);
+}
+
+.image-card-splat-link:focus-visible {
+  outline: 2px solid rgba(235, 245, 255, 0.94);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .image-card-splat-path {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Compass, Folder, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import useGlobeMotion from '../hooks/useGlobeMotion';
+import appLogo from '../../../assets/icon.png';
 import type { HomeProps } from '../types/gallery';
 import {
   CLOUD_DRAG_ROTATION_PER_PIXEL,
@@ -92,6 +93,11 @@ export default function Home({
   }, [failedImagePaths, filteredImages]);
 
   const hasLoadedImages = images.length > 0 && !isLoading;
+  const shouldShowBrandEmptyState =
+    !isLoading &&
+    !errorMessage &&
+    !activeFolder &&
+    renderableImages.length === 0;
 
   const markImageLoaded = useCallback((path: string) => {
     setLoadedImagePaths((current) => {
@@ -341,8 +347,24 @@ export default function Home({
           renderableImages.length === 0 ||
           Boolean(errorMessage)) && (
           <div className="status-panel">
-            <p className="status-title">{statusTitle}</p>
-            <p className="status-copy">{statusCopy}</p>
+            {shouldShowBrandEmptyState ? (
+              <div className="status-brand">
+                <img
+                  src={appLogo}
+                  alt="TimeFold logo"
+                  className="status-logo"
+                />
+                <p className="status-brand-name">TimeFold</p>
+                <p className="status-brand-copy">
+                  Start by selecting your album folder
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="status-title">{statusTitle}</p>
+                <p className="status-copy">{statusCopy}</p>
+              </>
+            )}
           </div>
         )}
       </section>
