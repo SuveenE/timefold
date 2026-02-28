@@ -64,6 +64,9 @@ const PREVIEW_DATA_URL_EXTENSIONS = new Set(['heic', 'heif']);
 const MAX_IMAGE_RESULTS = 320;
 const MAX_SCAN_DEPTH = 6;
 const MAX_PREVIEW_WIDTH = 960;
+const SPLAT_FOLDER_NAME = 'splats';
+const SPLAT_PREVIEW_BYTES = 96 * 1024;
+const SPLAT_PREVIEW_LINES = 36;
 
 const execFileAsync = promisify(execFile);
 
@@ -92,6 +95,13 @@ type PersistedImageMetadata = {
   ext: string;
   capturedAt: string | null;
   location: string | null;
+};
+
+type ImageSplat = {
+  name: string;
+  path: string;
+  previewText: string | null;
+  isBinary: boolean;
 };
 
 const parseMdlsValue = (output: string, key: string): string | null => {
@@ -184,6 +194,51 @@ const fileExists = async (filePath: string): Promise<boolean> => {
     return true;
   } catch {
     return false;
+  }
+};
+
+const buildSplatPath = (albumPath: string, imageName: string): string => {
+  const imageBaseName = path.parse(imageName).name;
+  return path.join(albumPath, SPLAT_FOLDER_NAME, `${imageBaseName}.ply`);
+};
+
+const toSplatPreview = (content: string): string | null => {
+  const lines = content.split(/\r?\n/).slice(0, SPLAT_PREVIEW_LINES);
+  const preview = lines.join('\n').trimEnd();
+  return preview.length > 0 ? preview : null;
+};
+
+const readSplat = async (splatPath: string): Promise<ImageSplat | null> => {
+  if (!(await fileExists(splatPath))) {
+    return null;
+  }
+
+  try {
+    const handle = await fs.open(splatPath, 'r');
+
+    try {
+      const buffer = Buffer.alloc(SPLAT_PREVIEW_BYTES);
+      const { bytesRead } = await handle.read(
+        buffer,
+        0,
+        SPLAT_PREVIEW_BYTES,
+        0,
+      );
+      const content = buffer.subarray(0, bytesRead).toString('utf8');
+      const isBinary = /format\s+binary_/i.test(content);
+      const previewText = toSplatPreview(content);
+
+      return {
+        name: path.basename(splatPath),
+        path: splatPath,
+        previewText,
+        isBinary,
+      };
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
   }
 };
 
@@ -488,6 +543,35 @@ ipcMain.handle(
     }
 
     return images;
+  },
+);
+
+ipcMain.handle(
+  'folder:get-image-splat',
+  async (_event, albumPath: unknown, imageName: unknown) => {
+    if (typeof albumPath !== 'string' || typeof imageName !== 'string') {
+      return null;
+    }
+
+    const resolvedAlbumPath = albumPath.trim();
+    const resolvedImageName = path.basename(imageName.trim());
+
+    if (resolvedAlbumPath.length === 0 || resolvedImageName.length === 0) {
+      return null;
+    }
+
+    try {
+      const stats = await fs.stat(resolvedAlbumPath);
+
+      if (!stats.isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+
+    const splatPath = buildSplatPath(resolvedAlbumPath, resolvedImageName);
+    return readSplat(splatPath);
   },
 );
 
