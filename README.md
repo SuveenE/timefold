@@ -10,6 +10,8 @@ A local-first desktop photo explorer that lets you browse personal image librari
 
 > **Note:** Timefold is not officially distributed yet. To try it, clone the repo and run locally.
 
+**[Watch the demo](https://x.com/SuveenE/status/2027761128240250928)**
+
 ## Features
 
 - **3D Image Cloud** — Your local album rendered as a floating spatial collage you can orbit, zoom, and click through.
