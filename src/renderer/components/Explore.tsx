@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Clock3, House, MapPin, Settings as SettingsIcon } from 'lucide-react';
 import useGlobeMotion from '../hooks/useGlobeMotion';
 import type {
@@ -18,14 +18,14 @@ import {
   createExploreLayout,
 } from '../utils/gallery';
 
-const LOCATION_MAP_WIDTH = 980;
-const LOCATION_MAP_HEIGHT = 510;
+const LOCATION_GLOBE_RADIUS = 320;
 const TIME_GLOBE_RADIUS = 300;
 const TIME_CLUSTER_BASE_SPREAD = 14;
 const TIME_CLUSTER_SPIRAL_SPREAD = 20;
 const TIME_CLUSTER_COMPRESSION_MIN = 0.82;
 const EXPLORE_WORLD_BASE_OFFSET_X = -24;
-const EXPLORE_WORLD_BASE_OFFSET_Y = -18;
+// Move the explore cloud upward by ~3cm (about 113px at 96dpi).
+const EXPLORE_WORLD_BASE_OFFSET_Y = -131;
 const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
 const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
 
@@ -137,15 +137,6 @@ const projectCoordinatesToGlobe = (
   };
 };
 
-const projectCoordinatesToWorldMap = (latitude: number, longitude: number) => {
-  const halfWidth = LOCATION_MAP_WIDTH * 0.5;
-  const halfHeight = LOCATION_MAP_HEIGHT * 0.5;
-  const x = (longitude / 180) * halfWidth;
-  const y = -(latitude / 90) * halfHeight;
-
-  return { x, y };
-};
-
 const buildYearValue = (capturedAt?: string | null): number | null => {
   if (!capturedAt) {
     return null;
@@ -178,9 +169,30 @@ const buildTangentBasis = (latitude: number, longitude: number) => {
   };
 };
 
-export default function Explore({ images, onImageSelect }: ExploreProps) {
+const resolveModeFromPathname = (pathname: string): ExploreMode | null => {
+  if (pathname === '/location') {
+    return 'location';
+  }
+
+  if (pathname === '/time') {
+    return 'time';
+  }
+
+  if (pathname === '/explore') {
+    return 'free';
+  }
+
+  return null;
+};
+
+export default function Explore({
+  images,
+  onImageSelect,
+  initialMode = 'free',
+}: ExploreProps) {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<ExploreMode>('free');
+  const location = useLocation();
+  const [mode, setMode] = useState<ExploreMode>(initialMode);
   const exploreStageRef = useRef<HTMLElement | null>(null);
   const exploreSidebarRef = useRef<HTMLElement | null>(null);
   const exploreWorldRef = useRef<HTMLDivElement | null>(null);
@@ -195,6 +207,20 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
   useEffect(() => {
     setLoadedImagePaths({});
   }, [images]);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    const pathMode = resolveModeFromPathname(location.pathname);
+
+    if (!pathMode) {
+      return;
+    }
+
+    setMode(pathMode);
+  }, [location.pathname]);
 
   const markImageLoaded = useCallback((path: string) => {
     setLoadedImagePaths((current) => {
@@ -256,11 +282,16 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         return current;
       }
 
-      const point = projectCoordinatesToWorldMap(
+      const point = projectCoordinatesToGlobe(
         coordinates.latitude,
         coordinates.longitude,
+        LOCATION_GLOBE_RADIUS,
       );
-      const depthHint = clamp((coordinates.latitude + 90) / 180, 0, 1);
+      const depthHint = clamp(
+        (point.z + LOCATION_GLOBE_RADIUS) / (LOCATION_GLOBE_RADIUS * 2),
+        0,
+        1,
+      );
       const variation = (index % 7) / 7;
 
       return [
@@ -270,10 +301,10 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           layout: {
             x: point.x,
             y: point.y,
-            z: -50 + depthHint * 80 + variation * 18,
-            width: 68 + depthHint * 26 + variation * 8,
+            z: point.z + 12 + variation * 10,
+            width: 60 + depthHint * 20 + variation * 8,
             rotation: (variation - 0.5) * 4,
-            opacity: clamp(0.56 + depthHint * 0.42, 0.45, 1),
+            opacity: clamp(0.4 + depthHint * 0.52, 0.34, 1),
           },
         },
       ];
@@ -569,8 +600,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         return;
       }
 
-      const effectiveRotationDeg = mode === 'location' ? 0 : rotationDeg;
-      const rotation = `${effectiveRotationDeg.toFixed(2)}deg`;
+      const rotation = `${rotationDeg.toFixed(2)}deg`;
       const finalZoom = zoomDepth + exploreFrame.fitZoom;
       const zoomValue = `${finalZoom.toFixed(2)}px`;
       const offsetXValue = `${(
@@ -581,7 +611,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
       worldNode.style.setProperty('--ex-world-zoom-z', zoomValue);
       worldNode.style.transform = `translate3d(${offsetXValue}, ${offsetYValue}, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
     },
-    [exploreFrame.fitZoom, exploreFrame.offsetX, mode],
+    [exploreFrame.fitZoom, exploreFrame.offsetX],
   );
 
   const exploreMotion = useGlobeMotion({
@@ -651,11 +681,9 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             className={`explore-sidebar-button ${
               mode === 'location' ? 'active' : ''
             }`}
-            aria-label="Show location map"
+            aria-label="Show location globe"
             onClick={() =>
-              setMode((current) =>
-                current === 'location' ? 'free' : 'location',
-              )
+              navigate(mode === 'location' ? '/explore' : '/location')
             }
           >
             <MapPin className="explore-sidebar-icon" aria-hidden="true" />
@@ -664,9 +692,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             type="button"
             className={`explore-sidebar-button ${mode === 'time' ? 'active' : ''}`}
             aria-label="Show year clusters"
-            onClick={() =>
-              setMode((current) => (current === 'time' ? 'free' : 'time'))
-            }
+            onClick={() => navigate(mode === 'time' ? '/explore' : '/time')}
           >
             <Clock3 className="explore-sidebar-icon" aria-hidden="true" />
           </button>
@@ -732,6 +758,8 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                         isImageLoaded ? 'is-loaded' : 'is-loading'
                       }`}
                       aria-label={`Open details for ${image.name}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onPointerUp={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
                         if (exploreMotion.consumeDragClick()) {
@@ -837,7 +865,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             <p className="status-title">No geotagged images found</p>
             <p className="status-copy">
               Load photos with latitude and longitude metadata to map them on
-              the world map.
+              the globe.
             </p>
           </div>
         ) : null}

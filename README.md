@@ -1,12 +1,20 @@
 # Timefold
 
-Timefold is a desktop application built with Electron, React, and TypeScript. It provides a modern local development setup with fast reloads for renderer updates, Electron main/preload bundling, and production packaging support.
+<img src="assets/icon.png" alt="Timefold logo" width="120" />
 
-## Home Screen
+Timefold is a local-first desktop photo explorer for browsing personal image libraries in an immersive 3D interface. It lets you load images from your own folders, navigate memories in spatial clusters, explore by time or location, and preview matching Gaussian splat reconstructions when available.
 
-The current home screen UI is shown below:
+## Features
 
-![Timefold home screen](assets/home.png)
+- **Image Cloud Feature**: Loads your local album into a floating 3D collage you can scan and open quickly.
+- **Explore Modes**: Switch between free exploration, location-based grouping, and time-based grouping.
+- **Gaussian Splats Feature**: Opens interactive `.ply` previews matched to selected images.
+
+## Image Cloud Feature
+
+The image cloud experience is shown below:
+
+![Timefold image cloud feature](assets/home.png)
 
 ## Gaussian Splats Feature
 
