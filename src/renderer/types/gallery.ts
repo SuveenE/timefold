@@ -49,6 +49,7 @@ export type HomeProps = {
 export type ExploreProps = {
   images: ListedImage[];
   onImageSelect: (image: ListedImage) => void;
+  initialMode?: ExploreMode;
 };
 
 export type SettingsProps = {
