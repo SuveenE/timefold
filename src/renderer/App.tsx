@@ -19,8 +19,9 @@ import timeIcon from '../../assets/icons/clock.png';
 import './App.css';
 
 type ClusterLayout = {
-  left: number;
-  top: number;
+  ringAngle: number;
+  ringRadius: number;
+  ringY: number;
   width: number;
   rotation: number;
   orbitX: number;
@@ -33,10 +34,12 @@ type ClusterLayout = {
   bobDuration: number;
   opacity: number;
   blur: number;
-  zIndex: number;
 };
 
 type TileStyle = CSSProperties & {
+  '--ring-angle': string;
+  '--ring-radius': string;
+  '--ring-y': string;
   '--orbit-x': string;
   '--orbit-y': string;
   '--orbit-duration': string;
@@ -161,29 +164,35 @@ const createClusterLayout = (
   total: number,
 ): ClusterLayout => {
   const random = createRandom(createSeed(`${seedKey}:${index}:${total}`));
-  const angle = random() * Math.PI * 2;
-  const radius = 8 + random() ** 0.75 * 34;
-  const xJitter = (random() - 0.5) * 9;
-  const yJitter = (random() - 0.5) * 11;
+  const safeTotal = Math.max(total, 1);
+  const ringLane = index % 3;
+  const laneOffset = ringLane - 1;
+  const baseAngle = (index / safeTotal) * 360;
+  const angleJitter = (random() - 0.5) * (6 + 130 / safeTotal);
   const depth = random();
-  const orbitDuration = 14 + random() * 22;
+  const orbitDuration = 13 + random() * 14;
+  const radiusBase = 260 + ringLane * 78;
+  const ringRadius = radiusBase + (random() - 0.5) * 44;
+  const ringY =
+    (random() - 0.5) * (250 + laneOffset * 28) +
+    laneOffset * (30 + random() * 14);
 
   return {
-    left: clamp(50 + Math.cos(angle) * radius + xJitter, 5, 95),
-    top: clamp(46 + Math.sin(angle) * radius * 0.86 + yJitter, 8, 90),
-    width: 56 + random() * 94 + depth * 35,
-    rotation: 0,
-    orbitX: (random() - 0.5) * (14 + (1 - depth) * 34),
-    orbitY: (random() - 0.5) * (12 + (1 - depth) * 24),
+    ringAngle: baseAngle + angleJitter,
+    ringRadius,
+    ringY,
+    width: 64 + random() * 90 + depth * 38,
+    rotation: (random() - 0.5) * 7,
+    orbitX: (random() - 0.5) * (8 + (1 - depth) * 14),
+    orbitY: (random() - 0.5) * (8 + (1 - depth) * 12),
     orbitDuration,
     orbitDelay: random() * 20,
     counterDuration: orbitDuration,
-    bobX: (random() - 0.5) * 13,
-    bobY: (random() - 0.5) * 16,
-    bobDuration: 4 + random() * 8,
-    opacity: clamp(0.58 + depth * 0.45, 0.46, 1),
-    blur: clamp((1 - depth) * 0.55, 0, 0.7),
-    zIndex: 5 + Math.round(depth * 140),
+    bobX: (random() - 0.5) * 10,
+    bobY: (random() - 0.5) * 14,
+    bobDuration: 4 + random() * 6,
+    opacity: clamp(0.58 + depth * 0.38, 0.48, 1),
+    blur: clamp((1 - depth) * 0.28, 0, 0.42),
   };
 };
 
@@ -361,8 +370,8 @@ function Home({
 
     const rotationValue = nextX.toFixed(2);
     const rotation = `${rotationValue}deg`;
-    cloudNode.style.setProperty('--cloud-rotation', rotation);
-    cloudNode.style.transform = `translate3d(0, 0, 0) rotate(${rotation})`;
+    cloudNode.style.setProperty('--cloud-rotation-y', rotation);
+    cloudNode.style.transform = `translate3d(0, 0, 0) rotateY(${rotation})`;
   };
 
   const runCloudFrame = (timestamp: number) => {
@@ -527,10 +536,12 @@ function Home({
             <div className="photo-cloud">
               {cloudItems.map(({ image, layout }) => {
                 const tileStyle: TileStyle = {
-                  left: `${layout.left}%`,
-                  top: `${layout.top}%`,
+                  left: '50%',
+                  top: '47%',
                   width: `${layout.width}px`,
-                  zIndex: layout.zIndex,
+                  '--ring-angle': `${layout.ringAngle}deg`,
+                  '--ring-radius': `${layout.ringRadius}px`,
+                  '--ring-y': `${layout.ringY}px`,
                   '--orbit-x': `${layout.orbitX}px`,
                   '--orbit-y': `${layout.orbitY}px`,
                   '--orbit-duration': `${layout.orbitDuration}s`,
