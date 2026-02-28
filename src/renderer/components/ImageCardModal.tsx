@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { ImageCardModalProps } from '../types/gallery';
 import { buildExpectedSplatName, formatCapturedAt } from '../utils/gallery';
+import SplatViewer from './SplatViewer';
 
 export default function ImageCardModal({
   image,
@@ -91,6 +92,7 @@ export default function ImageCardModal({
               <>
                 <p className="image-card-splat-note">{splat.name}</p>
                 <p className="image-card-splat-path">{splat.path}</p>
+                <SplatViewer splat={splat} />
                 {splat.previewText ? (
                   <pre className="image-card-splat-preview">
                     {splat.previewText}

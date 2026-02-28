@@ -15,6 +15,7 @@ export type ListedImage = {
 export type ImageSplat = {
   name: string;
   path: string;
+  url: string;
   previewText: string | null;
   isBinary: boolean;
 };
@@ -56,6 +57,12 @@ const electronHandler = {
         albumPath,
         imageName,
       ) as Promise<ImageSplat | null>;
+    },
+    getSplatBytes(splatPath: string) {
+      return ipcRenderer.invoke(
+        'folder:get-splat-bytes',
+        splatPath,
+      ) as Promise<Uint8Array | null>;
     },
   },
 };

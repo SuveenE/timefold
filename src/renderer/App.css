@@ -934,6 +934,28 @@ body {
   word-break: break-all;
 }
 
+.image-card-splat-viewer-shell {
+  margin-top: 10px;
+}
+
+.image-card-splat-viewer {
+  width: 100%;
+  height: 240px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background:
+    radial-gradient(circle at 18% 14%, rgba(147, 174, 255, 0.18), transparent 35%),
+    radial-gradient(circle at 74% 66%, rgba(255, 189, 125, 0.12), transparent 33%),
+    rgba(8, 9, 14, 0.96);
+}
+
+.image-card-splat-viewer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .image-card-splat-preview {
   margin: 8px 0 0;
   max-height: 220px;

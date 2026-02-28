@@ -14,6 +14,7 @@ import fs from 'fs/promises';
 import { createHash } from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { pathToFileURL } from 'url';
 import {
   app,
   BrowserWindow,
@@ -67,6 +68,7 @@ const MAX_PREVIEW_WIDTH = 960;
 const SPLAT_FOLDER_NAME = 'splats';
 const SPLAT_PREVIEW_BYTES = 96 * 1024;
 const SPLAT_PREVIEW_LINES = 36;
+const MAX_SPLAT_FILE_BYTES = 512 * 1024 * 1024;
 
 const execFileAsync = promisify(execFile);
 
@@ -100,6 +102,7 @@ type PersistedImageMetadata = {
 type ImageSplat = {
   name: string;
   path: string;
+  url: string;
   previewText: string | null;
   isBinary: boolean;
 };
@@ -231,6 +234,7 @@ const readSplat = async (splatPath: string): Promise<ImageSplat | null> => {
       return {
         name: path.basename(splatPath),
         path: splatPath,
+        url: pathToFileURL(splatPath).toString(),
         previewText,
         isBinary,
       };
@@ -574,6 +578,38 @@ ipcMain.handle(
     return readSplat(splatPath);
   },
 );
+
+ipcMain.handle('folder:get-splat-bytes', async (_event, splatPath: unknown) => {
+  if (typeof splatPath !== 'string') {
+    return null;
+  }
+
+  const resolvedSplatPath = path.resolve(splatPath.trim());
+
+  if (
+    resolvedSplatPath.length === 0 ||
+    path.extname(resolvedSplatPath).toLowerCase() !== '.ply'
+  ) {
+    return null;
+  }
+
+  try {
+    const stats = await fs.stat(resolvedSplatPath);
+
+    if (!stats.isFile() || stats.size > MAX_SPLAT_FILE_BYTES) {
+      return null;
+    }
+
+    const fileBuffer = await fs.readFile(resolvedSplatPath);
+    return new Uint8Array(
+      fileBuffer.buffer,
+      fileBuffer.byteOffset,
+      fileBuffer.byteLength,
+    );
+  } catch {
+    return null;
+  }
+});
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
