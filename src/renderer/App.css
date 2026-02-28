@@ -74,6 +74,24 @@ body {
   align-items: center;
   gap: 16px;
   min-width: 0;
+.library-header {
+  position: relative;
+  z-index: 20;
+  width: min(1960px, calc(100% - 30px));
+  margin: 10px auto 0;
+  border-radius: 16px;
+  border: 1px solid var(--header-border);
+  background: var(--header-bg);
+  color: var(--header-ink);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 22px;
+  padding: 20px 24px;
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(10px);
 }
 
 .window-controls {
@@ -185,12 +203,13 @@ body {
   position: relative;
   flex: 1;
   overflow: hidden;
-  padding: 26px 14px 196px;
+  padding: 22px 14px 196px;
 }
 
 .photo-cloud {
   position: absolute;
   inset: 0;
+  animation: cloud-sway 18s ease-in-out infinite;
 }
 
 .photo-tile {
@@ -199,8 +218,25 @@ body {
   pointer-events: none;
 }
 
+.orbit-track {
+  animation: orbit-around var(--orbit-duration, 26s) linear infinite;
+  animation-delay: var(--orbit-delay, 0s);
+}
+
+.orbit-orient {
+  animation: counter-orbit var(--counter-duration, 28s) linear infinite;
+  animation-delay: var(--orbit-delay, 0s);
+}
+
 .photo-motion {
+  animation: bob-tile var(--bob-duration, 7s) ease-in-out infinite;
+  animation-delay: var(--orbit-delay, 0s);
+}
+
+.photo-frame {
   border-radius: 8px;
+  transform: rotate(var(--tile-rotation, 0deg));
+  transform-origin: center;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: #121212;
@@ -208,17 +244,94 @@ body {
   filter: blur(var(--tile-blur, 0px));
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-  animation: float-tile 16s ease-in-out infinite;
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.photo-motion img {
+.photo-frame img {
   display: block;
   width: 100%;
   height: auto;
   max-height: 225px;
   object-fit: cover;
   user-select: none;
+}
+
+.explore-screen {
+  padding-bottom: 0;
+}
+
+.explore-stage {
+  position: relative;
+  flex: 1;
+  margin: 16px 18px 18px;
+  border-radius: 26px;
+  overflow: hidden;
+  perspective: 1700px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    radial-gradient(circle at 25% 25%, rgba(55, 70, 108, 0.22), transparent 45%),
+    radial-gradient(circle at 78% 75%, rgba(129, 90, 29, 0.2), transparent 44%),
+    rgba(5, 5, 8, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: grab;
+  touch-action: none;
+}
+
+.explore-stage.dragging {
+  cursor: grabbing;
+}
+
+.explore-scene {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  display: grid;
+  place-items: center;
+}
+
+.explore-world {
+  position: relative;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transition: transform 70ms linear;
+}
+
+.explore-card {
+  position: absolute;
+  margin: 0;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  animation: explore-depth var(--ex-duration, 16s) ease-in-out infinite;
+  animation-delay: var(--ex-delay, 0s);
+}
+
+.explore-card-frame {
+  border-radius: 7px;
+  transform: rotate(var(--ex-rotate, 0deg));
+  transform-origin: center;
+  overflow: hidden;
+  opacity: var(--ex-opacity, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 10, 10, 0.95);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.explore-card-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  object-fit: cover;
+  user-select: none;
+}
+
+.explore-empty {
+  top: 50%;
 }
 
 .status-panel {
@@ -386,13 +499,66 @@ body {
   padding-inline: 12px;
 }
 
-@keyframes float-tile {
+@keyframes orbit-around {
+  0% {
+    transform: rotate(0deg) translate(var(--orbit-x), var(--orbit-y));
+  }
+
+  50% {
+    transform: rotate(180deg) translate(var(--orbit-x), var(--orbit-y));
+  }
+
+  100% {
+    transform: rotate(360deg) translate(var(--orbit-x), var(--orbit-y));
+  }
+}
+
+@keyframes counter-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes bob-tile {
   0%,
   100% {
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
+
   50% {
-    transform: translate3d(var(--drift-x), var(--drift-y), 0);
+    transform: translate3d(var(--bob-x), var(--bob-y), 0) scale(1.02);
+  }
+}
+
+@keyframes cloud-sway {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  50% {
+    transform: translate3d(10px, -8px, 0) rotate(1.1deg);
+  }
+}
+
+@keyframes explore-depth {
+  0% {
+    transform: translate3d(var(--ex-x), var(--ex-y), var(--ex-z-start))
+      rotateZ(var(--ex-rotate));
+  }
+
+  50% {
+    transform: translate3d(var(--ex-x), var(--ex-y), var(--ex-z-end))
+      rotateZ(calc(var(--ex-rotate) + var(--ex-spin)));
+  }
+
+  100% {
+    transform: translate3d(var(--ex-x), var(--ex-y), var(--ex-z-start))
+      rotateZ(var(--ex-rotate));
   }
 }
 
@@ -418,6 +584,18 @@ body {
 
   .dock-actions {
     width: 100%;
+  .library-header {
+    grid-template-columns: auto 1fr;
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .header-utility {
+    grid-column: 1 / -1;
+    justify-self: end;
+    width: 50px;
+    height: 50px;
+    border-width: 3px;
   }
 
   .header-breadcrumb {
@@ -440,6 +618,11 @@ body {
   }
 
   .control-dock {
+    border-radius: 20px;
+  }
+
+  .explore-stage {
+    margin-inline: 12px;
     border-radius: 20px;
   }
 }
@@ -476,5 +659,9 @@ body {
   .status-panel {
     top: 34%;
     padding: 18px;
+  }
+
+  .explore-stage {
+    margin: 10px 10px 0;
   }
 }
