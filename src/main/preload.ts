@@ -23,6 +23,16 @@ export type ImageSplat = {
   isBinary: boolean;
 };
 
+export type CountryLookupResult = {
+  country: string | null;
+  raw: unknown;
+};
+
+export type ApiCallResult = {
+  status: number;
+  data: unknown;
+};
+
 const electronHandler = {
   ipcRenderer: {
     sendMessage(channel: Channels, ...args: unknown[]) {
@@ -66,6 +76,27 @@ const electronHandler = {
         'folder:get-splat-bytes',
         splatPath,
       ) as Promise<Uint8Array | null>;
+    },
+  },
+  api: {
+    fetchCountryByCoordinates(latitude: number, longitude: number) {
+      return ipcRenderer.invoke(
+        'api:fetch-country-by-coordinates',
+        latitude,
+        longitude,
+      ) as Promise<CountryLookupResult>;
+    },
+    generateWorldFromImage(imagePath: string) {
+      return ipcRenderer.invoke(
+        'api:generate-world-from-image',
+        imagePath,
+      ) as Promise<ApiCallResult>;
+    },
+    findPhotoAttributes(imagePath: string) {
+      return ipcRenderer.invoke(
+        'api:find-photo-attributes',
+        imagePath,
+      ) as Promise<ApiCallResult>;
     },
   },
 };
