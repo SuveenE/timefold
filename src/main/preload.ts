@@ -3,6 +3,24 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
 export type Channels = 'ipc-example';
+export type ImageAiAttributes = {
+  detectedObjects: string[];
+  primarySubject: string[];
+  sceneLocation: string[];
+  timeOfDay: string[];
+  lighting: string[];
+  sky: string[];
+  weather: string[];
+  season: string[];
+  environmentLandscape: string[];
+  activity: string[];
+  peopleCount: string[];
+  socialContext: string[];
+  moodVibe: string[];
+  aestheticStyleColor: string[];
+  ocrText: string[];
+};
+
 export type ListedImage = {
   name: string;
   path: string;
@@ -13,6 +31,7 @@ export type ListedImage = {
   country?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  aiAttributes?: ImageAiAttributes | null;
 };
 
 export type ImageSplat = {

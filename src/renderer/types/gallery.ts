@@ -1,4 +1,8 @@
-import type { ImageSplat, ListedImage } from '../../main/preload';
+import type {
+  ImageAiAttributes,
+  ImageSplat,
+  ListedImage,
+} from '../../main/preload';
 
 export type ClusterLayout = {
   sphereX: number;
@@ -65,4 +69,4 @@ export type ImageCardModalProps = {
   onClose: () => void;
 };
 
-export type { ImageSplat, ListedImage };
+export type { ImageAiAttributes, ImageSplat, ListedImage };

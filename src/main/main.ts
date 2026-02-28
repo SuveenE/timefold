@@ -38,6 +38,24 @@ class AppUpdater {
 
 let mainWindow: BrowserWindow | null = null;
 
+type ImageAiAttributes = {
+  detectedObjects: string[];
+  primarySubject: string[];
+  sceneLocation: string[];
+  timeOfDay: string[];
+  lighting: string[];
+  sky: string[];
+  weather: string[];
+  season: string[];
+  environmentLandscape: string[];
+  activity: string[];
+  peopleCount: string[];
+  socialContext: string[];
+  moodVibe: string[];
+  aestheticStyleColor: string[];
+  ocrText: string[];
+};
+
 type ListedImage = {
   name: string;
   path: string;
@@ -48,6 +66,7 @@ type ListedImage = {
   country?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  aiAttributes?: ImageAiAttributes | null;
 };
 
 const IMAGE_EXTENSIONS = new Set([
@@ -74,6 +93,7 @@ const SPLAT_PREVIEW_LINES = 36;
 const MAX_SPLAT_FILE_BYTES = 512 * 1024 * 1024;
 const SPLAT_EXTENSIONS = ['.spz', '.ply'] as const;
 const LOCAL_API_BASE_URL = 'http://localhost:8000';
+const PHOTO_ATTRIBUTES_FILE_NAME = 'photo_attributes_all.json';
 
 const execFileAsync = promisify(execFile);
 
@@ -108,7 +128,128 @@ type PersistedImageMetadata = {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  aiAttributes: ImageAiAttributes | null;
 };
+
+type RawPhotoAttribute = {
+  key?: unknown;
+  value?: unknown;
+};
+
+type AttributeCategoryDefinition = {
+  field: Exclude<keyof ImageAiAttributes, 'detectedObjects'>;
+  aliases: string[];
+};
+
+type PhotoAttributeIndex = {
+  byName: Map<string, ImageAiAttributes>;
+  byPath: Map<string, ImageAiAttributes>;
+};
+
+const ATTRIBUTE_CATEGORY_DEFINITIONS: AttributeCategoryDefinition[] = [
+  {
+    field: 'primarySubject',
+    aliases: [
+      'main_subject',
+      'object',
+      'object_present',
+      'animal_species',
+      'vehicle_type',
+    ],
+  },
+  {
+    field: 'sceneLocation',
+    aliases: [
+      'location_type',
+      'location_name',
+      'location_hint',
+      'primary_setting',
+      'scene_type',
+      'venue_type',
+    ],
+  },
+  {
+    field: 'timeOfDay',
+    aliases: ['time_of_day', 'time_of_day_hint', 'time_of_day_suggestion'],
+  },
+  {
+    field: 'lighting',
+    aliases: [
+      'lighting_condition',
+      'lighting_type',
+      'lighting_style',
+      'light_quality',
+    ],
+  },
+  {
+    field: 'sky',
+    aliases: ['sky_condition', 'sky_color', 'cloud_presence'],
+  },
+  {
+    field: 'weather',
+    aliases: [
+      'weather_condition',
+      'weather_conditions',
+      'weather_hint',
+      'temperature_hint',
+    ],
+  },
+  {
+    field: 'season',
+    aliases: ['season', 'season_hint', 'time_of_year_hint'],
+  },
+  {
+    field: 'environmentLandscape',
+    aliases: [
+      'environment_type',
+      'landscape_type',
+      'terrain_type',
+      'vegetation_type',
+      'water_color',
+    ],
+  },
+  {
+    field: 'activity',
+    aliases: [
+      'activity',
+      'activity_type',
+      'activity_main',
+      'activity_implied',
+      'human_action',
+    ],
+  },
+  {
+    field: 'peopleCount',
+    aliases: [
+      'number_of_people_visible',
+      'number_of_people',
+      'person_count',
+      'number_of_people_approx',
+    ],
+  },
+  {
+    field: 'socialContext',
+    aliases: ['social_setting', 'social_interaction', 'group_size'],
+  },
+  {
+    field: 'moodVibe',
+    aliases: ['vibe', 'vibe_suggestion', 'mood_suggestion'],
+  },
+  {
+    field: 'aestheticStyleColor',
+    aliases: [
+      'aesthetic_style',
+      'aesthetic_quality',
+      'depth_of_field',
+      'perspective',
+      'color_palette',
+    ],
+  },
+  {
+    field: 'ocrText',
+    aliases: ['visible_text', 'text_extracted', 'visible_text_on_screen'],
+  },
+];
 
 type ImageSplat = {
   name: string;
@@ -143,6 +284,324 @@ const toIsoDateIfValid = (value: string): string | null => {
   }
 
   return parsed.toISOString();
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+};
+
+const createEmptyImageAiAttributes = (): ImageAiAttributes => {
+  return {
+    detectedObjects: [],
+    primarySubject: [],
+    sceneLocation: [],
+    timeOfDay: [],
+    lighting: [],
+    sky: [],
+    weather: [],
+    season: [],
+    environmentLandscape: [],
+    activity: [],
+    peopleCount: [],
+    socialContext: [],
+    moodVibe: [],
+    aestheticStyleColor: [],
+    ocrText: [],
+  };
+};
+
+const toTrimmedStringValue = (value: unknown): string | null => {
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    return trimmedValue.length > 0 ? trimmedValue : null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `${value}`;
+  }
+
+  return null;
+};
+
+const appendUniqueValues = (target: string[], values: string[]): void => {
+  values.forEach((value) => {
+    const normalizedValue = value.trim();
+
+    if (!normalizedValue) {
+      return;
+    }
+
+    const isDuplicate = target.some(
+      (existingValue) =>
+        existingValue.localeCompare(normalizedValue, undefined, {
+          sensitivity: 'accent',
+        }) === 0,
+    );
+
+    if (!isDuplicate) {
+      target.push(normalizedValue);
+    }
+  });
+};
+
+const isAliasMatch = (normalizedKey: string, alias: string): boolean => {
+  return (
+    normalizedKey === alias ||
+    normalizedKey.startsWith(`${alias}_`) ||
+    normalizedKey.startsWith(`${alias}-`)
+  );
+};
+
+const findBestAliasMatch = (
+  normalizedKey: string,
+  aliases: string[],
+): string | null => {
+  const matchedAliases = aliases
+    .filter((alias) => isAliasMatch(normalizedKey, alias))
+    .sort((first, second) => second.length - first.length);
+
+  return matchedAliases.length > 0 ? matchedAliases[0] : null;
+};
+
+const humanizeCategorySuffix = (value: string): string => {
+  return value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+};
+
+const collectScalarValues = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectScalarValues(item));
+  }
+
+  const scalarValue = toTrimmedStringValue(value);
+  return scalarValue ? [scalarValue] : [];
+};
+
+const extractValuesForAlias = (
+  normalizedKey: string,
+  matchedAlias: string,
+  rawValue: unknown,
+): string[] => {
+  if (typeof rawValue === 'boolean') {
+    if (!rawValue) {
+      return [];
+    }
+
+    if (normalizedKey === matchedAlias) {
+      return ['Yes'];
+    }
+
+    const suffix = normalizedKey
+      .slice(matchedAlias.length)
+      .replace(/^[_-]+/, '');
+    const humanizedSuffix = humanizeCategorySuffix(suffix);
+    return humanizedSuffix ? [humanizedSuffix] : ['Yes'];
+  }
+
+  const scalarValues = collectScalarValues(rawValue);
+
+  if (scalarValues.length > 0) {
+    return scalarValues;
+  }
+
+  if (normalizedKey !== matchedAlias) {
+    const suffix = normalizedKey
+      .slice(matchedAlias.length)
+      .replace(/^[_-]+/, '');
+    const humanizedSuffix = humanizeCategorySuffix(suffix);
+    return humanizedSuffix ? [humanizedSuffix] : [];
+  }
+
+  return [];
+};
+
+const hasAnyAiAttributeValues = (attributes: ImageAiAttributes): boolean => {
+  return Object.values(attributes).some((values) => values.length > 0);
+};
+
+const normalizeImageNameKey = (value: string): string => {
+  return path.basename(value).trim().toLowerCase();
+};
+
+const normalizeImagePathKey = (value: string): string => {
+  return path.normalize(value).trim().toLowerCase();
+};
+
+const fileExists = async (filePath: string): Promise<boolean> => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const normalizePhotoAttributesItem = (
+  item: Record<string, unknown>,
+): ImageAiAttributes | null => {
+  const normalizedAttributes = createEmptyImageAiAttributes();
+  const florence = isRecord(item.florence) ? item.florence : null;
+  const florenceRaw = florence && isRecord(florence.raw) ? florence.raw : null;
+  const florenceResults =
+    florenceRaw && isRecord(florenceRaw.results) ? florenceRaw.results : null;
+  const florenceBboxes = Array.isArray(florenceResults?.bboxes)
+    ? florenceResults.bboxes
+    : [];
+
+  florenceBboxes.forEach((bbox) => {
+    if (!isRecord(bbox)) {
+      return;
+    }
+
+    const label = toTrimmedStringValue(bbox.label);
+
+    if (label) {
+      appendUniqueValues(normalizedAttributes.detectedObjects, [label]);
+    }
+  });
+
+  const gemini = isRecord(item.gemini) ? item.gemini : null;
+  const geminiJson = gemini && isRecord(gemini.json) ? gemini.json : null;
+  const rawAttributes = Array.isArray(geminiJson?.attributes)
+    ? geminiJson.attributes
+    : [];
+
+  rawAttributes.forEach((rawAttribute) => {
+    if (!isRecord(rawAttribute)) {
+      return;
+    }
+
+    const attribute = rawAttribute as RawPhotoAttribute;
+    const rawKey = toTrimmedStringValue(attribute.key);
+
+    if (!rawKey) {
+      return;
+    }
+
+    const normalizedKey = rawKey.toLowerCase();
+
+    ATTRIBUTE_CATEGORY_DEFINITIONS.forEach((categoryDefinition) => {
+      const matchedAlias = findBestAliasMatch(
+        normalizedKey,
+        categoryDefinition.aliases,
+      );
+
+      if (!matchedAlias) {
+        return;
+      }
+
+      const values = extractValuesForAlias(
+        normalizedKey,
+        matchedAlias,
+        attribute.value,
+      );
+      appendUniqueValues(
+        normalizedAttributes[categoryDefinition.field],
+        values,
+      );
+    });
+  });
+
+  return hasAnyAiAttributeValues(normalizedAttributes)
+    ? normalizedAttributes
+    : null;
+};
+
+const createPhotoAttributeIndex = async (
+  metadataFolderPath: string,
+): Promise<PhotoAttributeIndex> => {
+  const emptyIndex: PhotoAttributeIndex = {
+    byName: new Map(),
+    byPath: new Map(),
+  };
+  const photoAttributesPath = path.join(
+    metadataFolderPath,
+    PHOTO_ATTRIBUTES_FILE_NAME,
+  );
+
+  if (!(await fileExists(photoAttributesPath))) {
+    return emptyIndex;
+  }
+
+  try {
+    const rawContent = await fs.readFile(photoAttributesPath, 'utf8');
+    const parsedContent = JSON.parse(rawContent);
+
+    if (!isRecord(parsedContent) || !Array.isArray(parsedContent.items)) {
+      return emptyIndex;
+    }
+
+    parsedContent.items.forEach((rawItem) => {
+      if (!isRecord(rawItem)) {
+        return;
+      }
+
+      const normalizedAttributes = normalizePhotoAttributesItem(rawItem);
+
+      if (!normalizedAttributes) {
+        return;
+      }
+
+      const fileName = toTrimmedStringValue(rawItem.file_name);
+      const absolutePath = toTrimmedStringValue(rawItem.absolute_path);
+
+      if (fileName) {
+        const normalizedFileName = normalizeImageNameKey(fileName);
+
+        if (normalizedFileName) {
+          emptyIndex.byName.set(normalizedFileName, normalizedAttributes);
+        }
+      }
+
+      if (absolutePath) {
+        const normalizedPath = normalizeImagePathKey(absolutePath);
+
+        if (normalizedPath) {
+          emptyIndex.byPath.set(normalizedPath, normalizedAttributes);
+        }
+
+        const normalizedPathBaseName = normalizeImageNameKey(absolutePath);
+
+        if (normalizedPathBaseName) {
+          emptyIndex.byName.set(normalizedPathBaseName, normalizedAttributes);
+        }
+      }
+    });
+  } catch (error) {
+    log.warn('Unable to read photo attributes metadata', {
+      photoAttributesPath,
+      error,
+    });
+  }
+
+  return emptyIndex;
+};
+
+const applyPhotoAttributes = (
+  images: ListedImage[],
+  attributeIndex: PhotoAttributeIndex,
+): ListedImage[] => {
+  if (attributeIndex.byName.size === 0 && attributeIndex.byPath.size === 0) {
+    return images;
+  }
+
+  return images.map((image) => {
+    const byPathMatch = attributeIndex.byPath.get(
+      normalizeImagePathKey(image.path),
+    );
+    const byNameMatch = attributeIndex.byName.get(
+      normalizeImageNameKey(image.name),
+    );
+    const aiAttributes = byPathMatch || byNameMatch || null;
+
+    if (!aiAttributes) {
+      return image;
+    }
+
+    return {
+      ...image,
+      aiAttributes,
+    };
+  });
 };
 
 const inferCountryFromCoordinates = (
@@ -267,15 +726,6 @@ const extractImageMetadata = async (
     latitude,
     longitude,
   };
-};
-
-const fileExists = async (filePath: string): Promise<boolean> => {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 };
 
 const readApiResponse = async (response: Response): Promise<unknown> => {
@@ -686,6 +1136,7 @@ const persistImageMetadata = async (
     country: image.country ?? null,
     latitude: image.latitude ?? null,
     longitude: image.longitude ?? null,
+    aiAttributes: image.aiAttributes ?? null,
   }));
 
   const payload = {
@@ -751,9 +1202,13 @@ ipcMain.handle(
       metadataFolderPath.trim().length > 0
         ? metadataFolderPath.trim()
         : path.join(resolvedPath, 'metadata');
+    const photoAttributeIndex = await createPhotoAttributeIndex(
+      resolvedMetadataFolderPath,
+    );
+    const enrichedImages = applyPhotoAttributes(images, photoAttributeIndex);
 
     try {
-      await persistImageMetadata(images, resolvedMetadataFolderPath);
+      await persistImageMetadata(enrichedImages, resolvedMetadataFolderPath);
     } catch (error) {
       log.warn('Unable to save image metadata', {
         metadataFolderPath: resolvedMetadataFolderPath,
@@ -761,7 +1216,7 @@ ipcMain.handle(
       });
     }
 
-    return images;
+    return enrichedImages;
   },
 );
 
