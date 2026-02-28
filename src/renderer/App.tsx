@@ -11,11 +11,8 @@ import {
   Routes,
   useNavigate,
 } from 'react-router-dom';
-import type { ListedImage } from '../main/preload';
-import homeIcon from '../../assets/icons/home.png';
-import settingsIcon from '../../assets/icons/settings.png';
-import locationIcon from '../../assets/icons/map-pin.png';
-import timeIcon from '../../assets/icons/clock.png';
+import { Clock3, House, MapPin, Settings as SettingsIcon } from 'lucide-react';
+import type { ImageSplat, ListedImage } from '../main/preload';
 import './App.css';
 
 type ClusterLayout = {
@@ -87,10 +84,12 @@ type HomeProps = {
   errorMessage: string | null;
   onSelectFolder: () => Promise<void>;
   onReload: () => Promise<void>;
+  onImageSelect: (image: ListedImage) => void;
 };
 
 type ExploreProps = {
   images: ListedImage[];
+  onImageSelect: (image: ListedImage) => void;
 };
 
 type ExploreMode = 'free' | 'location' | 'time';
@@ -104,6 +103,14 @@ type SettingsValues = {
 type SettingsProps = {
   settings: SettingsValues;
   onSettingsChange: (nextSettings: SettingsValues) => void;
+};
+
+type ImageCardModalProps = {
+  image: ListedImage | null;
+  splat: ImageSplat | null;
+  isSplatLoading: boolean;
+  splatLookupError: string | null;
+  onClose: () => void;
 };
 
 type CameraState = {
@@ -140,6 +147,25 @@ const buildMetadataLocation = (albumLocation: string): string => {
   const separator =
     normalizedPath.includes('\\') && !normalizedPath.includes('/') ? '\\' : '/';
   return `${normalizedPath}${separator}metadata`;
+};
+
+const buildExpectedSplatName = (imageName: string): string => {
+  const imageBaseName = imageName.replace(/\.[^.]+$/, '');
+  return `${imageBaseName}.ply`;
+};
+
+const formatCapturedAt = (capturedAt?: string | null): string => {
+  if (!capturedAt) {
+    return 'Unknown date';
+  }
+
+  const parsedDate = new Date(capturedAt);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return capturedAt;
+  }
+
+  return parsedDate.toLocaleString();
 };
 
 const createSeed = (input: string): number => {
@@ -239,6 +265,7 @@ function Home({
   errorMessage,
   onSelectFolder,
   onReload,
+  onImageSelect,
 }: HomeProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -609,7 +636,16 @@ function Home({
                     <div className="orbit-track">
                       <div className="orbit-orient">
                         <div className="photo-motion">
-                          <div className="photo-frame">
+                          <button
+                            type="button"
+                            className="photo-frame photo-frame-button"
+                            aria-label={`Open details for ${image.name}`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onImageSelect(image);
+                            }}
+                          >
                             <img
                               src={image.url}
                               alt=""
@@ -628,7 +664,7 @@ function Home({
                                 });
                               }}
                             />
-                          </div>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -709,7 +745,7 @@ function Home({
   );
 }
 
-function Explore({ images }: ExploreProps) {
+function Explore({ images, onImageSelect }: ExploreProps) {
   const navigate = useNavigate();
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA);
   const [isDragging, setIsDragging] = useState(false);
@@ -906,7 +942,7 @@ function Explore({ images }: ExploreProps) {
             aria-label="Go to home"
             onClick={() => navigate('/')}
           >
-            <img src={homeIcon} alt="" aria-hidden="true" />
+            <House className="explore-sidebar-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -914,7 +950,7 @@ function Explore({ images }: ExploreProps) {
             aria-label="Go to settings"
             onClick={() => navigate('/settings')}
           >
-            <img src={settingsIcon} alt="" aria-hidden="true" />
+            <SettingsIcon className="explore-sidebar-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -928,7 +964,7 @@ function Explore({ images }: ExploreProps) {
               )
             }
           >
-            <img src={locationIcon} alt="" aria-hidden="true" />
+            <MapPin className="explore-sidebar-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -938,7 +974,7 @@ function Explore({ images }: ExploreProps) {
               setMode((current) => (current === 'time' ? 'free' : 'time'))
             }
           >
-            <img src={timeIcon} alt="" aria-hidden="true" />
+            <Clock3 className="explore-sidebar-icon" aria-hidden="true" />
           </button>
         </aside>
 
@@ -968,14 +1004,23 @@ function Explore({ images }: ExploreProps) {
                     className="explore-card"
                     style={cardStyle}
                   >
-                    <div className="explore-card-frame">
+                    <button
+                      type="button"
+                      className="explore-card-frame explore-card-button"
+                      aria-label={`Open details for ${image.name}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onImageSelect(image);
+                      }}
+                    >
                       <img
                         src={image.url}
                         alt=""
                         loading="lazy"
                         draggable={false}
                       />
-                    </div>
+                    </button>
                   </figure>
                 );
               })}
@@ -1003,13 +1048,20 @@ function Explore({ images }: ExploreProps) {
                     </header>
                     <div className="explore-cluster-thumbs">
                       {cluster.images.slice(0, 8).map((image) => (
-                        <img
+                        <button
                           key={`${cluster.label}-${image.path}`}
-                          src={image.url}
-                          alt=""
-                          loading="lazy"
-                          draggable={false}
-                        />
+                          type="button"
+                          className="explore-thumb-button"
+                          aria-label={`Open details for ${image.name}`}
+                          onClick={() => onImageSelect(image)}
+                        >
+                          <img
+                            src={image.url}
+                            alt=""
+                            loading="lazy"
+                            draggable={false}
+                          />
+                        </button>
                       ))}
                     </div>
                   </section>
@@ -1102,6 +1154,124 @@ function Settings({ settings, onSettingsChange }: SettingsProps) {
   );
 }
 
+function ImageCardModal({
+  image,
+  splat,
+  isSplatLoading,
+  splatLookupError,
+  onClose,
+}: ImageCardModalProps) {
+  useEffect(() => {
+    if (!image) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [image, onClose]);
+
+  if (!image) {
+    return null;
+  }
+
+  const expectedSplatName = buildExpectedSplatName(image.name);
+
+  return (
+    <div className="image-card-overlay">
+      <button
+        type="button"
+        className="image-card-backdrop"
+        aria-label="Close image details"
+        onClick={onClose}
+      />
+      <article
+        className="image-card"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Image details"
+      >
+        <button
+          type="button"
+          className="image-card-close"
+          aria-label="Close image card"
+          onClick={onClose}
+        >
+          close
+        </button>
+
+        <div className="image-card-media">
+          <img src={image.url} alt={image.name} />
+        </div>
+
+        <section className="image-card-details">
+          <h2 className="image-card-title">{image.name}</h2>
+
+          <dl className="image-card-meta">
+            <div>
+              <dt>Date</dt>
+              <dd>{formatCapturedAt(image.capturedAt)}</dd>
+            </div>
+            <div>
+              <dt>Location</dt>
+              <dd>{image.location?.trim() || 'Unknown location'}</dd>
+            </div>
+          </dl>
+
+          <div className="image-card-splat">
+            <h3>Gaussian splat</h3>
+
+            {isSplatLoading ? (
+              <p className="image-card-splat-note">
+                Checking for matching file...
+              </p>
+            ) : null}
+
+            {!isSplatLoading && splatLookupError ? (
+              <p className="image-card-splat-note">{splatLookupError}</p>
+            ) : null}
+
+            {!isSplatLoading && !splatLookupError && splat ? (
+              <>
+                <p className="image-card-splat-note">{splat.name}</p>
+                <p className="image-card-splat-path">{splat.path}</p>
+                {splat.previewText ? (
+                  <pre className="image-card-splat-preview">
+                    {splat.previewText}
+                  </pre>
+                ) : (
+                  <p className="image-card-splat-note">
+                    No preview text available for this `.ply` file.
+                  </p>
+                )}
+                {splat.isBinary ? (
+                  <p className="image-card-splat-note">
+                    Binary `.ply` detected. Showing header preview.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+
+            {!isSplatLoading && !splatLookupError && !splat ? (
+              <p className="image-card-splat-note">
+                No matching file found at `splats/{expectedSplatName}`.
+              </p>
+            ) : null}
+          </div>
+        </section>
+      </article>
+    </div>
+  );
+}
+
 function AppRoutes() {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [images, setImages] = useState<ListedImage[]>([]);
@@ -1115,6 +1285,13 @@ function AppRoutes() {
     metadataLocation: '',
     yourName: '',
   });
+  const [selectedImage, setSelectedImage] = useState<ListedImage | null>(null);
+  const [selectedImageSplat, setSelectedImageSplat] =
+    useState<ImageSplat | null>(null);
+  const [isSplatLoading, setIsSplatLoading] = useState(false);
+  const [splatLookupError, setSplatLookupError] = useState<string | null>(null);
+  const splatLookupCache = useRef<Record<string, ImageSplat | null>>({});
+  const splatLookupRequestId = useRef(0);
 
   useEffect(() => {
     const rawSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -1147,10 +1324,20 @@ function AppRoutes() {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   }, [isSettingsHydrated, settings]);
 
-  const loadFolderImages = useCallback(
-    async (folderPath: string, metadataFolderPath?: string) => {
-      setIsLoading(true);
-      setErrorMessage(null);
+  useEffect(() => {
+    splatLookupCache.current = {};
+    setSelectedImage(null);
+    setSelectedImageSplat(null);
+    setIsSplatLoading(false);
+    setSplatLookupError(null);
+  }, [activeFolder]);
+
+  const loadFolderImages = async (
+    folderPath: string,
+    metadataFolderPath?: string,
+  ) => {
+    setIsLoading(true);
+    setErrorMessage(null);
 
       try {
         const folderImages = await window.electron.folder.listImages(
@@ -1257,30 +1444,107 @@ function AppRoutes() {
     await loadFolderImages(activeFolder, effectiveMetadataLocation);
   };
 
+  const closeImageCard = () => {
+    splatLookupRequestId.current += 1;
+    setSelectedImage(null);
+    setSelectedImageSplat(null);
+    setIsSplatLoading(false);
+    setSplatLookupError(null);
+  };
+
+  const handleImageSelect = async (image: ListedImage) => {
+    const requestId = splatLookupRequestId.current + 1;
+    splatLookupRequestId.current = requestId;
+    setSelectedImage(image);
+    setSplatLookupError(null);
+
+    const resolvedAlbumPath = activeFolder?.trim();
+
+    if (!resolvedAlbumPath) {
+      setSelectedImageSplat(null);
+      setIsSplatLoading(false);
+      return;
+    }
+
+    const cacheKey = `${resolvedAlbumPath}:${image.name}`;
+
+    if (
+      Object.prototype.hasOwnProperty.call(splatLookupCache.current, cacheKey)
+    ) {
+      setSelectedImageSplat(splatLookupCache.current[cacheKey]);
+      setIsSplatLoading(false);
+      return;
+    }
+
+    setIsSplatLoading(true);
+    setSelectedImageSplat(null);
+
+    try {
+      const splat = await window.electron.folder.getImageSplat(
+        resolvedAlbumPath,
+        image.name,
+      );
+      splatLookupCache.current[cacheKey] = splat;
+
+      if (splatLookupRequestId.current !== requestId) {
+        return;
+      }
+
+      setSelectedImageSplat(splat);
+    } catch {
+      if (splatLookupRequestId.current !== requestId) {
+        return;
+      }
+
+      setSelectedImageSplat(null);
+      setSplatLookupError('Unable to load matching splat file.');
+    } finally {
+      if (splatLookupRequestId.current === requestId) {
+        setIsSplatLoading(false);
+      }
+    }
+  };
+
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Home
-            activeFolder={activeFolder}
-            images={images}
-            isSelecting={isSelecting}
-            isLoading={isLoading}
-            errorMessage={errorMessage}
-            onSelectFolder={handleFolderSelect}
-            onReload={handleReload}
-          />
-        }
+    <>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <Home
+              activeFolder={activeFolder}
+              images={images}
+              isSelecting={isSelecting}
+              isLoading={isLoading}
+              errorMessage={errorMessage}
+              onSelectFolder={handleFolderSelect}
+              onReload={handleReload}
+              onImageSelect={handleImageSelect}
+            />
+          }
+        />
+        <Route
+          path="/explore"
+          element={
+            <Explore images={images} onImageSelect={handleImageSelect} />
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <Settings settings={settings} onSettingsChange={setSettings} />
+          }
+        />
+      </Routes>
+
+      <ImageCardModal
+        image={selectedImage}
+        splat={selectedImageSplat}
+        isSplatLoading={isSplatLoading}
+        splatLookupError={splatLookupError}
+        onClose={closeImageCard}
       />
-      <Route path="/explore" element={<Explore images={images} />} />
-      <Route
-        path="/settings"
-        element={
-          <Settings settings={settings} onSettingsChange={setSettings} />
-        }
-      />
-    </Routes>
+    </>
   );
 }
 

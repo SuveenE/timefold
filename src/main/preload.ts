@@ -12,6 +12,13 @@ export type ListedImage = {
   location?: string | null;
 };
 
+export type ImageSplat = {
+  name: string;
+  path: string;
+  previewText: string | null;
+  isBinary: boolean;
+};
+
 const electronHandler = {
   ipcRenderer: {
     sendMessage(channel: Channels, ...args: unknown[]) {
@@ -42,6 +49,13 @@ const electronHandler = {
         folderPath,
         metadataFolderPath,
       ) as Promise<ListedImage[]>;
+    },
+    getImageSplat(albumPath: string, imageName: string) {
+      return ipcRenderer.invoke(
+        'folder:get-image-splat',
+        albumPath,
+        imageName,
+      ) as Promise<ImageSplat | null>;
     },
   },
 };
