@@ -391,6 +391,75 @@ body {
   place-items: center;
 }
 
+.explore-location-globe {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 670px;
+  height: 670px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  border: 1px solid rgba(146, 193, 255, 0.28);
+  background:
+    radial-gradient(circle at 33% 28%, rgba(63, 111, 204, 0.3), transparent 45%),
+    radial-gradient(circle at 68% 72%, rgba(36, 132, 104, 0.28), transparent 43%),
+    radial-gradient(circle at 50% 50%, rgba(20, 32, 53, 0.55), rgba(5, 7, 12, 0.12) 74%);
+  box-shadow:
+    inset -38px -34px 80px rgba(0, 0, 0, 0.36),
+    inset 30px 20px 60px rgba(129, 178, 247, 0.2),
+    0 0 70px rgba(67, 117, 197, 0.2);
+}
+
+.explore-location-globe::before,
+.explore-location-globe::after {
+  content: '';
+  position: absolute;
+  inset: 9%;
+  border-radius: 50%;
+  border: 1px solid rgba(181, 215, 255, 0.26);
+}
+
+.explore-location-globe::before {
+  transform: rotateX(67deg);
+}
+
+.explore-location-globe::after {
+  inset: 15%;
+  transform: rotateY(67deg);
+}
+
+.explore-location-meta {
+  position: absolute;
+  top: 20px;
+  left: 106px;
+  z-index: 30;
+  border-radius: 12px;
+  padding: 9px 11px;
+  max-width: min(380px, calc(100% - 126px));
+  border: 1px solid rgba(230, 237, 248, 0.2);
+  background: rgba(7, 9, 14, 0.66);
+  backdrop-filter: blur(8px);
+}
+
+.explore-location-meta-title,
+.explore-location-meta-copy {
+  margin: 0;
+}
+
+.explore-location-meta-title {
+  font-size: 0.86rem;
+  letter-spacing: 0.01em;
+  color: rgba(246, 249, 255, 0.95);
+}
+
+.explore-location-meta-copy {
+  margin-top: 3px;
+  font-size: 0.77rem;
+  color: rgba(224, 230, 240, 0.82);
+}
+
 .explore-cluster-board {
   position: absolute;
   inset: 0;
@@ -487,6 +556,15 @@ body {
   transform-style: preserve-3d;
   transform: translate3d(var(--ex-x, 0px), var(--ex-y, 0px), var(--ex-z, 0px))
     rotateY(calc(var(--ex-world-rotation-y, 0deg) * -1));
+}
+
+.explore-card.location-card .explore-card-frame {
+  border-radius: 999px;
+}
+
+.explore-card.location-card .explore-card-frame img {
+  aspect-ratio: 1 / 1;
+  width: 100%;
 }
 
 .explore-card-frame {
@@ -1127,6 +1205,16 @@ body {
     padding-left: 88px;
   }
 
+  .explore-location-meta {
+    left: 88px;
+    max-width: min(340px, calc(100% - 104px));
+  }
+
+  .explore-location-globe {
+    width: 590px;
+    height: 590px;
+  }
+
   .settings-body {
     padding: 14px;
   }
@@ -1212,6 +1300,17 @@ body {
 
   .explore-cluster-board {
     padding: 14px 10px 78px;
+  }
+
+  .explore-location-meta {
+    top: 10px;
+    left: 10px;
+    max-width: calc(100% - 20px);
+  }
+
+  .explore-location-globe {
+    width: 420px;
+    height: 420px;
   }
 
   .explore-cluster-grid {

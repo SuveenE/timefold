@@ -3,7 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock3, House, MapPin, Settings as SettingsIcon } from 'lucide-react';
 import useGlobeMotion from '../hooks/useGlobeMotion';
-import type { ExploreMode, ExploreProps } from '../types/gallery';
+import type {
+  ExploreMode,
+  ExploreProps,
+  ExploreLayout,
+  ListedImage,
+} from '../types/gallery';
 import {
   EXPLORE_DRAG_ROTATION_PER_PIXEL,
   EXPLORE_ZOOM_MAX,
@@ -13,12 +18,92 @@ import {
   createExploreLayout,
 } from '../utils/gallery';
 
+const LOCATION_GLOBE_RADIUS = 320;
+const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
+
 type ExploreCardStyle = CSSProperties & {
   '--ex-x': string;
   '--ex-y': string;
   '--ex-z': string;
   '--ex-rotate': string;
   '--ex-opacity': string;
+};
+
+type ExploreSceneItem = {
+  image: ListedImage;
+  layout: ExploreLayout;
+};
+
+type ParsedCoordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+const hasValidCoordinates = (latitude: number, longitude: number): boolean => {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+};
+
+const parseCoordinatesFromImage = (
+  image: ListedImage,
+): ParsedCoordinates | null => {
+  if (
+    typeof image.latitude === 'number' &&
+    typeof image.longitude === 'number'
+  ) {
+    if (hasValidCoordinates(image.latitude, image.longitude)) {
+      return {
+        latitude: image.latitude,
+        longitude: image.longitude,
+      };
+    }
+  }
+
+  const fallbackLocation = image.location?.trim();
+
+  if (!fallbackLocation) {
+    return null;
+  }
+
+  const match = fallbackLocation.match(LOCATION_TEXT_PATTERN);
+
+  if (!match) {
+    return null;
+  }
+
+  const latitude = Number(match[1]);
+  const longitude = Number(match[2]);
+
+  if (!hasValidCoordinates(latitude, longitude)) {
+    return null;
+  }
+
+  return {
+    latitude,
+    longitude,
+  };
+};
+
+const projectCoordinatesToGlobe = (
+  latitude: number,
+  longitude: number,
+  radius: number,
+) => {
+  const latRadians = (latitude * Math.PI) / 180;
+  const lonRadians = (longitude * Math.PI) / 180;
+  const cosLatitude = Math.cos(latRadians);
+
+  return {
+    x: Math.sin(lonRadians) * cosLatitude * radius,
+    y: -Math.sin(latRadians) * radius,
+    z: Math.cos(lonRadians) * cosLatitude * radius,
+  };
 };
 
 export default function Explore({ images, onImageSelect }: ExploreProps) {
@@ -32,7 +117,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
     fitZoom: -220,
   });
 
-  const exploreItems = useMemo(() => {
+  const exploreItems = useMemo<ExploreSceneItem[]>(() => {
     const items = images.map((image, index) => {
       return {
         image,
@@ -71,21 +156,41 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
     }));
   }, [images]);
 
-  const locationClusters = useMemo(() => {
-    const groups = new Map<string, typeof images>();
+  const locationItems = useMemo<ExploreSceneItem[]>(() => {
+    return images.reduce<ExploreSceneItem[]>((current, image, index) => {
+      const coordinates = parseCoordinatesFromImage(image);
 
-    images.forEach((image) => {
-      const key = image.location?.trim() || 'Unknown location';
-      const current = groups.get(key) || [];
-      groups.set(key, [...current, image]);
-    });
+      if (!coordinates) {
+        return current;
+      }
 
-    return [...groups.entries()]
-      .map(([label, groupedImages]) => ({
-        label,
-        images: groupedImages,
-      }))
-      .sort((first, second) => second.images.length - first.images.length);
+      const point = projectCoordinatesToGlobe(
+        coordinates.latitude,
+        coordinates.longitude,
+        LOCATION_GLOBE_RADIUS,
+      );
+      const depthHint = clamp(
+        (point.z + LOCATION_GLOBE_RADIUS) / (LOCATION_GLOBE_RADIUS * 2),
+        0,
+        1,
+      );
+      const variation = (index % 7) / 7;
+
+      return [
+        ...current,
+        {
+          image,
+          layout: {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+            width: 68 + depthHint * 26 + variation * 8,
+            rotation: (variation - 0.5) * 4,
+            opacity: clamp(0.56 + depthHint * 0.42, 0.45, 1),
+          },
+        },
+      ];
+    }, []);
   }, [images]);
 
   const timeClusters = useMemo(() => {
@@ -124,12 +229,16 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
       });
   }, [images]);
 
+  const isSceneMode = mode !== 'time';
+  const activeSceneItems = mode === 'location' ? locationItems : exploreItems;
+  const imagesMissingCoordinates = images.length - locationItems.length;
+
   useEffect(() => {
     let frameId = 0;
     let observer: ResizeObserver | null = null;
     let recomputeFit: (() => void) | null = null;
 
-    if (mode === 'free' && exploreItems.length > 0) {
+    if (isSceneMode && activeSceneItems.length > 0) {
       const stageNode = exploreStageRef.current;
 
       if (stageNode) {
@@ -167,7 +276,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             );
 
             const fitsAtZoom = (zoom: number): boolean => {
-              return exploreItems.every(({ layout }) => {
+              return activeSceneItems.every(({ layout }) => {
                 const translatedZ = layout.z + zoom;
                 const denominator = perspective - translatedZ;
 
@@ -253,7 +362,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [exploreItems, mode]);
+  }, [activeSceneItems, isSceneMode]);
 
   const renderExploreState = useCallback(
     (rotationDeg: number, zoomDepth: number) => {
@@ -275,8 +384,8 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
   );
 
   const exploreMotion = useGlobeMotion({
-    enabled: mode === 'free' && images.length > 0,
-    syncToken: exploreItems,
+    enabled: isSceneMode && activeSceneItems.length > 0,
+    syncToken: activeSceneItems,
     onRender: renderExploreState,
     dragRotationPerPixel: EXPLORE_DRAG_ROTATION_PER_PIXEL,
     zoomMin: EXPLORE_ZOOM_MIN,
@@ -306,7 +415,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
       <section
         ref={exploreStageRef}
         className={`explore-stage ${exploreMotion.isDragging ? 'dragging' : ''} ${
-          mode !== 'free' ? 'cluster-mode' : ''
+          mode === 'time' ? 'cluster-mode' : ''
         }`}
         onPointerDown={exploreMotion.onPointerDown}
         onPointerMove={exploreMotion.onPointerMove}
@@ -341,7 +450,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             className={`explore-sidebar-button ${
               mode === 'location' ? 'active' : ''
             }`}
-            aria-label="Show location clusters"
+            aria-label="Show location globe"
             onClick={() =>
               setMode((current) =>
                 current === 'location' ? 'free' : 'location',
@@ -362,10 +471,13 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           </button>
         </aside>
 
-        {images.length > 0 && mode === 'free' ? (
+        {images.length > 0 && isSceneMode ? (
           <div className="explore-scene">
             <div className="explore-world" ref={exploreWorldRef}>
-              {exploreItems.map(({ image, layout }) => {
+              {mode === 'location' ? (
+                <div className="explore-location-globe" aria-hidden="true" />
+              ) : null}
+              {activeSceneItems.map(({ image, layout }) => {
                 const cardStyle: ExploreCardStyle = {
                   left: '50%',
                   top: '50%',
@@ -379,8 +491,10 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
 
                 return (
                   <figure
-                    key={`explore-${image.path}`}
-                    className="explore-card"
+                    key={`${mode}-${image.path}`}
+                    className={`explore-card ${
+                      mode === 'location' ? 'location-card' : ''
+                    }`}
                     style={cardStyle}
                   >
                     <button
@@ -407,49 +521,76 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                 );
               })}
             </div>
+
+            {mode === 'location' ? (
+              <div
+                className="explore-location-meta"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <p className="explore-location-meta-title">
+                  {locationItems.length} geotagged
+                  {locationItems.length === 1 ? ' photo' : ' photos'}
+                </p>
+                <p className="explore-location-meta-copy">
+                  {imagesMissingCoordinates > 0
+                    ? `${imagesMissingCoordinates} without latitude/longitude metadata`
+                    : 'All photos include latitude/longitude metadata'}
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
-        {images.length > 0 && mode !== 'free' ? (
+        {images.length > 0 && mode === 'time' ? (
           <div
             className="explore-cluster-board"
             onPointerDown={(event) => event.stopPropagation()}
           >
             <div className="explore-cluster-grid">
-              {(mode === 'location' ? locationClusters : timeClusters).map(
-                (cluster) => (
-                  <section
-                    key={`${mode}-${cluster.label}`}
-                    className="explore-cluster-card"
-                  >
-                    <header className="explore-cluster-header">
-                      <p className="explore-cluster-label">{cluster.label}</p>
-                      <span className="explore-cluster-count">
-                        {cluster.images.length}
-                      </span>
-                    </header>
-                    <div className="explore-cluster-thumbs">
-                      {cluster.images.slice(0, 8).map((image) => (
-                        <button
-                          key={`${cluster.label}-${image.path}`}
-                          type="button"
-                          className="explore-thumb-button"
-                          aria-label={`Open details for ${image.name}`}
-                          onClick={() => onImageSelect(image)}
-                        >
-                          <img
-                            src={image.url}
-                            alt=""
-                            loading="lazy"
-                            draggable={false}
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                ),
-              )}
+              {timeClusters.map((cluster) => (
+                <section
+                  key={`${mode}-${cluster.label}`}
+                  className="explore-cluster-card"
+                >
+                  <header className="explore-cluster-header">
+                    <p className="explore-cluster-label">{cluster.label}</p>
+                    <span className="explore-cluster-count">
+                      {cluster.images.length}
+                    </span>
+                  </header>
+                  <div className="explore-cluster-thumbs">
+                    {cluster.images.slice(0, 8).map((image) => (
+                      <button
+                        key={`${cluster.label}-${image.path}`}
+                        type="button"
+                        className="explore-thumb-button"
+                        aria-label={`Open details for ${image.name}`}
+                        onClick={() => onImageSelect(image)}
+                      >
+                        <img
+                          src={image.url}
+                          alt=""
+                          loading="lazy"
+                          draggable={false}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
+          </div>
+        ) : null}
+
+        {mode === 'location' &&
+        images.length > 0 &&
+        locationItems.length === 0 ? (
+          <div className="status-panel explore-empty">
+            <p className="status-title">No geotagged images found</p>
+            <p className="status-copy">
+              Load photos with latitude and longitude metadata to map them on
+              the globe.
+            </p>
           </div>
         ) : null}
 
