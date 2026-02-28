@@ -12,6 +12,8 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import type { ListedImage } from '../main/preload';
+import homeIcon from '../../assets/icons/home.png';
+import settingsIcon from '../../assets/icons/settings.png';
 import './App.css';
 
 type ClusterLayout = {
@@ -107,6 +109,7 @@ type CameraState = {
 
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
+const SETTINGS_STORAGE_KEY = 'timefold.settings';
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -116,17 +119,15 @@ const INITIAL_CAMERA: CameraState = {
   zoom: -180,
 };
 
-const getFolderName = (folderPath: string): string => {
-  return (
-    folderPath
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .pop() || 'Workspace'
-  );
-};
-
 const clamp = (value: number, min: number, max: number): number => {
   return Math.min(Math.max(value, min), max);
+};
+
+const buildMetadataLocation = (albumLocation: string): string => {
+  const normalizedPath = albumLocation.replace(/[\\/]+$/, '');
+  const separator =
+    normalizedPath.includes('\\') && !normalizedPath.includes('/') ? '\\' : '/';
+  return `${normalizedPath}${separator}metadata`;
 };
 
 const createSeed = (input: string): number => {
@@ -275,11 +276,6 @@ function Home({
     return filteredImages.filter((image) => !failedImagePaths[image.path]);
   }, [failedImagePaths, filteredImages]);
 
-  const hiddenImageCount = Math.max(
-    0,
-    filteredPool.length - filteredImages.length,
-  );
-  const failedPreviewCount = filteredImages.length - renderableImages.length;
   const hasLoadedImages = images.length > 0 && !isLoading;
 
   const statusTitle = useMemo(() => {
@@ -341,29 +337,6 @@ function Home({
     <main className="gallery-screen">
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
-
-      <header className="library-header">
-        <div className="window-controls" aria-hidden="true">
-          <span className="traffic-dot traffic-dot-close" />
-          <span className="traffic-dot traffic-dot-minimize" />
-          <span className="traffic-dot traffic-dot-expand" />
-        </div>
-
-        <div className="header-breadcrumb" aria-label="Current section">
-          <span className="header-breadcrumb-primary">My Library</span>
-          <span className="header-breadcrumb-separator">/</span>
-          <span className="header-breadcrumb-secondary">Recent</span>
-        </div>
-
-        <button
-          type="button"
-          className="header-utility"
-          aria-label="Open settings"
-          onClick={() => navigate('/settings')}
-        >
-          <span className="orbit-icon" aria-hidden="true" />
-        </button>
-      </header>
 
       <section className="cloud-viewport" aria-live="polite">
         {renderableImages.length > 0 && (
@@ -488,79 +461,9 @@ function Home({
           </div>
         </div>
 
-        <div className="chip-row">
-          {filterChips.map((chip) => (
-            <button
-              key={chip.key}
-              type="button"
-              className={`chip ${activeFilter === chip.key ? 'active' : ''}`}
-              onClick={() => setActiveFilter(chip.key)}
-              disabled={chip.count === 0}
-            >
-              {chip.label}
-              <small>{chip.count}</small>
-            </button>
-          ))}
-        </div>
-
-        <div className="dock-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => navigate('/settings')}
-          >
-            settings
-          </button>
-          {images.length > 0 && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => navigate('/explore')}
-              disabled={isLoading}
-            >
-              explore
-            </button>
-          )}
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={onReload}
-            disabled={!activeFolder || isLoading}
-          >
-            reload
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={onSelectFolder}
-            disabled={isSelecting}
-          >
-            {isSelecting ? 'opening...' : 'choose folder'}
-          </button>
-        </div>
-
-        <section className="dock-meta">
-          <p className="folder-name">
-            {activeFolder ? getFolderName(activeFolder) : 'No folder selected'}
-          </p>
-          <p className="folder-path">
-            {activeFolder || 'Select a local folder containing image files'}
-          </p>
-          <p className="folder-note">
-            App data related to this folder is saved in the same location.
-          </p>
-          {hiddenImageCount > 0 && (
-            <p className="hint">
-              Showing first {MAX_RENDERED_IMAGES} images for smooth animation (
-              {hiddenImageCount} more not rendered).
-            </p>
-          )}
-          {failedPreviewCount > 0 && (
-            <p className="hint">
-              {failedPreviewCount} image previews failed to load in this view.
-            </p>
-          )}
-        </section>
+        <p className="folder-path">
+          {activeFolder || 'Select a local folder containing image files'}
+        </p>
       </footer>
     </main>
   );
@@ -681,6 +584,28 @@ function Explore({ images }: ExploreProps) {
         onWheel={handleWheel}
         aria-label="Interactive image space"
       >
+        <aside
+          className="explore-sidebar"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            aria-label="Go to home"
+            onClick={() => navigate('/')}
+          >
+            <img src={homeIcon} alt="" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="explore-sidebar-button"
+            aria-label="Go to settings"
+            onClick={() => navigate('/settings')}
+          >
+            <img src={settingsIcon} alt="" aria-hidden="true" />
+          </button>
+        </aside>
+
         {images.length > 0 ? (
           <div className="explore-scene">
             <div className="explore-world" style={worldStyle}>
@@ -749,33 +674,19 @@ function Settings({ settings, onSettingsChange }: SettingsProps) {
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
-      <header className="library-header">
-        <div className="window-controls" aria-hidden="true">
-          <span className="traffic-dot traffic-dot-close" />
-          <span className="traffic-dot traffic-dot-minimize" />
-          <span className="traffic-dot traffic-dot-expand" />
-        </div>
-
-        <div className="header-breadcrumb" aria-label="Current section">
-          <span className="header-breadcrumb-primary">Settings</span>
-          <span className="header-breadcrumb-separator">/</span>
-          <span className="header-breadcrumb-secondary">Profile</span>
-        </div>
-
-        <button
-          type="button"
-          className="ghost-button settings-back"
-          onClick={() => navigate('/')}
-        >
-          back
-        </button>
-      </header>
-
       <section className="settings-body">
         <form
           className="settings-form"
           onSubmit={(event) => event.preventDefault()}
         >
+          <button
+            type="button"
+            className="ghost-button settings-back"
+            onClick={() => navigate('/')}
+          >
+            back
+          </button>
+
           <label className="settings-field" htmlFor="photo-album-location">
             Photo album location
             <input
@@ -829,12 +740,42 @@ function AppRoutes() {
     yourName: '',
   });
 
-  const loadFolderImages = async (folderPath: string) => {
+  useEffect(() => {
+    const rawSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+
+    if (!rawSettings) {
+      return;
+    }
+
+    try {
+      const parsedSettings = JSON.parse(rawSettings) as Partial<SettingsValues>;
+      setSettings((current) => ({
+        ...current,
+        photoAlbumLocation: parsedSettings.photoAlbumLocation ?? '',
+        metadataLocation: parsedSettings.metadataLocation ?? '',
+        yourName: parsedSettings.yourName ?? '',
+      }));
+    } catch {
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [settings]);
+
+  const loadFolderImages = async (
+    folderPath: string,
+    metadataFolderPath?: string,
+  ) => {
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const folderImages = await window.electron.folder.listImages(folderPath);
+      const folderImages = await window.electron.folder.listImages(
+        folderPath,
+        metadataFolderPath,
+      );
       setImages(folderImages);
 
       if (folderImages.length === 0) {
@@ -861,7 +802,21 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
-      await loadFolderImages(selectedFolder);
+      setSettings((current) => {
+        if (current.photoAlbumLocation.trim().length > 0) {
+          return current;
+        }
+
+        return {
+          ...current,
+          photoAlbumLocation: selectedFolder,
+          metadataLocation: buildMetadataLocation(selectedFolder),
+        };
+      });
+      const effectiveMetadataLocation =
+        settings.metadataLocation.trim() ||
+        buildMetadataLocation(selectedFolder);
+      await loadFolderImages(selectedFolder, effectiveMetadataLocation);
     } finally {
       setIsSelecting(false);
     }
@@ -872,7 +827,10 @@ function AppRoutes() {
       return;
     }
 
-    await loadFolderImages(activeFolder);
+    const effectiveMetadataLocation =
+      settings.metadataLocation.trim() ||
+      buildMetadataLocation(settings.photoAlbumLocation.trim() || activeFolder);
+    await loadFolderImages(activeFolder, effectiveMetadataLocation);
   };
 
   return (
