@@ -264,7 +264,31 @@ function AppRoutes() {
         <Route
           path="/explore"
           element={
-            <Explore images={images} onImageSelect={handleImageSelect} />
+            <Explore
+              images={images}
+              onImageSelect={handleImageSelect}
+              initialMode="free"
+            />
+          }
+        />
+        <Route
+          path="/location"
+          element={
+            <Explore
+              images={images}
+              onImageSelect={handleImageSelect}
+              initialMode="location"
+            />
+          }
+        />
+        <Route
+          path="/time"
+          element={
+            <Explore
+              images={images}
+              onImageSelect={handleImageSelect}
+              initialMode="time"
+            />
           }
         />
         <Route

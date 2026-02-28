@@ -404,40 +404,33 @@ body {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 980px;
-  height: 510px;
+  width: 680px;
+  height: 680px;
   transform: translate(-50%, -50%);
-  border-radius: 28px;
+  border-radius: 50%;
   pointer-events: none;
   transform-style: preserve-3d;
-  border: 1px solid rgba(156, 197, 241, 0.34);
+  border: 1px solid rgba(179, 215, 250, 0.34);
   background:
-    repeating-linear-gradient(
-      to right,
-      rgba(214, 236, 255, 0.08) 0,
-      rgba(214, 236, 255, 0.08) 1px,
-      transparent 1px,
-      transparent 81px
+    radial-gradient(
+      circle at 30% 24%,
+      rgba(186, 224, 255, 0.48) 0,
+      rgba(186, 224, 255, 0.14) 23%,
+      transparent 48%
     ),
-    repeating-linear-gradient(
-      to bottom,
-      rgba(214, 236, 255, 0.08) 0,
-      rgba(214, 236, 255, 0.08) 1px,
-      transparent 1px,
-      transparent 64px
-    ),
-    radial-gradient(circle at 24% 16%, rgba(82, 122, 176, 0.24), transparent 42%),
-    radial-gradient(circle at 72% 76%, rgba(37, 80, 132, 0.2), transparent 46%),
-    linear-gradient(180deg, rgba(6, 25, 48, 0.92), rgba(4, 16, 31, 0.86));
+    radial-gradient(circle at 72% 66%, rgba(8, 23, 44, 0.56), transparent 58%),
+    radial-gradient(circle at 64% 34%, rgba(20, 58, 103, 0.46), transparent 62%),
+    radial-gradient(circle at 36% 74%, rgba(16, 39, 72, 0.52), transparent 60%),
+    linear-gradient(180deg, rgba(12, 41, 72, 0.94), rgba(4, 16, 31, 0.92));
   box-shadow:
-    inset 0 -36px 80px rgba(0, 0, 0, 0.36),
-    inset 0 16px 30px rgba(174, 211, 255, 0.08),
-    0 0 70px rgba(67, 117, 197, 0.2);
+    inset -48px -72px 130px rgba(0, 0, 0, 0.42),
+    inset 24px 30px 66px rgba(150, 210, 255, 0.12),
+    0 0 72px rgba(74, 133, 226, 0.24);
 }
 
 .explore-location-map::before,
 .explore-location-map::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
@@ -445,21 +438,67 @@ body {
 
 .explore-location-map::before {
   background:
-    radial-gradient(120px 72px at 19% 44%, rgba(115, 173, 128, 0.6), transparent 70%),
-    radial-gradient(90px 60px at 25% 56%, rgba(115, 173, 128, 0.58), transparent 72%),
-    radial-gradient(156px 82px at 50% 36%, rgba(134, 182, 123, 0.55), transparent 74%),
-    radial-gradient(120px 86px at 56% 58%, rgba(123, 175, 117, 0.52), transparent 74%),
-    radial-gradient(138px 74px at 71% 42%, rgba(124, 182, 130, 0.56), transparent 74%),
-    radial-gradient(96px 58px at 82% 66%, rgba(115, 173, 128, 0.5), transparent 73%);
-  filter: saturate(0.9);
-  opacity: 0.72;
+    repeating-linear-gradient(
+      to right,
+      rgba(206, 230, 255, 0.1) 0,
+      rgba(206, 230, 255, 0.1) 1px,
+      transparent 1px,
+      transparent 54px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(206, 230, 255, 0.12) 0,
+      rgba(206, 230, 255, 0.12) 1px,
+      transparent 1px,
+      transparent 54px
+    );
+  opacity: 0.38;
+  mask-image: radial-gradient(circle at center, black 62%, transparent 100%);
+  -webkit-mask-image: radial-gradient(
+    circle at center,
+    black 62%,
+    transparent 100%
+  );
 }
 
 .explore-location-map::after {
-  border: 1px solid rgba(189, 225, 255, 0.24);
+  background:
+    radial-gradient(
+      130px 84px at 21% 44%,
+      rgba(132, 192, 130, 0.52),
+      transparent 72%
+    ),
+    radial-gradient(
+      112px 70px at 32% 58%,
+      rgba(120, 180, 123, 0.48),
+      transparent 74%
+    ),
+    radial-gradient(
+      154px 88px at 50% 35%,
+      rgba(137, 188, 122, 0.5),
+      transparent 74%
+    ),
+    radial-gradient(
+      116px 78px at 57% 56%,
+      rgba(124, 180, 116, 0.46),
+      transparent 76%
+    ),
+    radial-gradient(
+      144px 80px at 72% 42%,
+      rgba(125, 184, 132, 0.5),
+      transparent 74%
+    ),
+    radial-gradient(
+      108px 64px at 79% 64%,
+      rgba(117, 177, 127, 0.44),
+      transparent 76%
+    );
+  border: 1px solid rgba(189, 225, 255, 0.22);
   box-shadow:
     inset 0 0 0 1px rgba(182, 220, 255, 0.05),
-    inset 0 0 60px rgba(8, 16, 28, 0.5);
+    inset 0 0 82px rgba(7, 15, 26, 0.58);
+  filter: saturate(0.9);
+  opacity: 0.76;
 }
 
 .explore-time-stars {
@@ -1465,8 +1504,8 @@ body {
   }
 
   .explore-location-map {
-    width: 780px;
-    height: 420px;
+    width: 560px;
+    height: 560px;
   }
 
   .explore-time-marker-year {
@@ -1577,8 +1616,8 @@ body {
   }
 
   .explore-location-map {
-    width: min(560px, calc(100vw - 24px));
-    height: min(320px, calc(100vh - 220px));
+    width: min(420px, calc(100vw - 36px));
+    height: min(420px, calc(100vw - 36px));
   }
 
   .explore-time-stars {
