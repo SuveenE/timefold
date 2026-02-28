@@ -277,6 +277,28 @@ function Home() {
       <div className="nebula" aria-hidden="true" />
       <div className="grain" aria-hidden="true" />
 
+      <header className="library-header">
+        <div className="window-controls" aria-hidden="true">
+          <span className="traffic-dot traffic-dot-close" />
+          <span className="traffic-dot traffic-dot-minimize" />
+          <span className="traffic-dot traffic-dot-expand" />
+        </div>
+
+        <div className="header-breadcrumb" aria-label="Current section">
+          <span className="header-breadcrumb-primary">My Library</span>
+          <span className="header-breadcrumb-separator">/</span>
+          <span className="header-breadcrumb-secondary">Recent</span>
+        </div>
+
+        <button
+          type="button"
+          className="header-utility"
+          aria-label="Open library controls"
+        >
+          <span className="orbit-icon" aria-hidden="true" />
+        </button>
+      </header>
+
       <section className="cloud-viewport" aria-live="polite">
         {renderableImages.length > 0 && (
           <div className="photo-cloud">
