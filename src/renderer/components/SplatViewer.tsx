@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+// @ts-expect-error -- JS module exists at runtime; node16 resolution cannot find the types.
+import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer';
 import type { ImageSplat } from '../types/gallery';
 
 const clamp = (value: number, min: number, max: number): number => {
@@ -10,8 +12,174 @@ type SplatViewerProps = {
   splat: ImageSplat;
 };
 
-const MAX_FALLBACK_POINTS = 180000;
+const MAX_POINTS = 180000;
 const SH_C0 = 0.28209479177387814;
+
+// ---------------------------------------------------------------------------
+// Inline GLSL shaders (no webpack loader needed)
+// ---------------------------------------------------------------------------
+
+const SIMPLEX_NOISE_4D = /* glsl */ `
+vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+float permute(float x){return floor(mod(((x*34.0)+1.0)*x, 289.0));}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+float taylorInvSqrt(float r){return 1.79284291400159 - 0.85373472095314 * r;}
+
+vec4 grad4(float j, vec4 ip){
+  const vec4 ones = vec4(1.0, 1.0, 1.0, -1.0);
+  vec4 p,s;
+  p.xyz = floor( fract (vec3(j) * ip.xyz) * 7.0) * ip.z - 1.0;
+  p.w = 1.5 - dot(abs(p.xyz), ones.xyz);
+  s = vec4(lessThan(p, vec4(0.0)));
+  p.xyz = p.xyz + (s.xyz*2.0 - 1.0) * s.www;
+  return p;
+}
+
+float simplexNoise4d(vec4 v){
+  const vec2 C = vec2( 0.138196601125010504, 0.309016994374947451);
+  vec4 i  = floor(v + dot(v, C.yyyy) );
+  vec4 x0 = v -   i + dot(i, C.xxxx);
+  vec4 i0;
+  vec3 isX = step( x0.yzw, x0.xxx );
+  vec3 isYZ = step( x0.zww, x0.yyz );
+  i0.x = isX.x + isX.y + isX.z;
+  i0.yzw = 1.0 - isX;
+  i0.y += isYZ.x + isYZ.y;
+  i0.zw += 1.0 - isYZ.xy;
+  i0.z += isYZ.z;
+  i0.w += 1.0 - isYZ.z;
+  vec4 i3 = clamp( i0, 0.0, 1.0 );
+  vec4 i2 = clamp( i0-1.0, 0.0, 1.0 );
+  vec4 i1 = clamp( i0-2.0, 0.0, 1.0 );
+  vec4 x1 = x0 - i1 + 1.0 * C.xxxx;
+  vec4 x2 = x0 - i2 + 2.0 * C.xxxx;
+  vec4 x3 = x0 - i3 + 3.0 * C.xxxx;
+  vec4 x4 = x0 - 1.0 + 4.0 * C.xxxx;
+  i = mod(i, 289.0);
+  float j0 = permute( permute( permute( permute(i.w) + i.z) + i.y) + i.x);
+  vec4 j1 = permute( permute( permute( permute (
+             i.w + vec4(i1.w, i2.w, i3.w, 1.0 ))
+           + i.z + vec4(i1.z, i2.z, i3.z, 1.0 ))
+           + i.y + vec4(i1.y, i2.y, i3.y, 1.0 ))
+           + i.x + vec4(i1.x, i2.x, i3.x, 1.0 ));
+  vec4 ip = vec4(1.0/294.0, 1.0/49.0, 1.0/7.0, 0.0) ;
+  vec4 p0 = grad4(j0,   ip);
+  vec4 p1 = grad4(j1.x, ip);
+  vec4 p2 = grad4(j1.y, ip);
+  vec4 p3 = grad4(j1.z, ip);
+  vec4 p4 = grad4(j1.w, ip);
+  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+  p0 *= norm.x;
+  p1 *= norm.y;
+  p2 *= norm.z;
+  p3 *= norm.w;
+  p4 *= taylorInvSqrt(dot(p4,p4));
+  vec3 m0 = max(0.6 - vec3(dot(x0,x0), dot(x1,x1), dot(x2,x2)), 0.0);
+  vec2 m1 = max(0.6 - vec2(dot(x3,x3), dot(x4,x4)            ), 0.0);
+  m0 = m0 * m0;
+  m1 = m1 * m1;
+  return 49.0 * ( dot(m0*m0, vec3( dot( p0, x0 ), dot( p1, x1 ), dot( p2, x2 )))
+               + dot(m1*m1, vec2( dot( p3, x3 ), dot( p4, x4 ) ) ) ) ;
+}
+`;
+
+const GPGPU_PARTICLES_SHADER = /* glsl */ `
+uniform float uTime;
+uniform float uDeltaTime;
+uniform sampler2D uBase;
+uniform float uFlowFieldInfluence;
+uniform float uFlowFieldStrength;
+uniform float uFlowFieldFrequency;
+
+${SIMPLEX_NOISE_4D}
+
+void main() {
+  float time = uTime * 0.2;
+  vec2 uv = gl_FragCoord.xy / resolution.xy;
+  vec4 particle = texture2D(uParticles, uv);
+  vec4 base = texture2D(uBase, uv);
+
+  if (particle.a >= 1.0) {
+    particle.a = mod(particle.a, 1.0);
+    particle.xyz = base.xyz;
+  } else {
+    float strength = simplexNoise4d(vec4(base.xyz * 0.7, time + 1.0));
+    float influence = (uFlowFieldInfluence - 0.5) * (-2.0);
+    strength = smoothstep(influence, 1.0, strength);
+
+    vec3 flowField = vec3(
+      simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 0.0, time)),
+      simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 1.0, time)),
+      simplexNoise4d(vec4(particle.xyz * uFlowFieldFrequency + 2.0, time))
+    );
+    flowField = normalize(flowField);
+    particle.xyz += flowField * uDeltaTime * strength * uFlowFieldStrength;
+
+    particle.a += uDeltaTime * 0.9;
+  }
+
+  gl_FragColor = particle;
+}
+`;
+
+const PARTICLES_VERT = /* glsl */ `
+uniform vec2 uResolution;
+uniform float uSize;
+uniform sampler2D uParticlesTexture;
+
+attribute vec2 aParticlesUv;
+attribute vec3 aColor;
+attribute float aSize;
+
+varying vec3 vColor;
+
+void main() {
+  vec4 particle = texture2D(uParticlesTexture, aParticlesUv);
+
+  vec4 modelPosition = modelMatrix * vec4(particle.xyz, 1.0);
+  vec4 viewPosition = viewMatrix * modelPosition;
+  vec4 projectedPosition = projectionMatrix * viewPosition;
+  gl_Position = projectedPosition;
+
+  float sizeIn = smoothstep(0.0, 0.6, particle.a);
+  float sizeOut = 1.0 - smoothstep(0.6, 1.0, particle.a);
+  float size = min(sizeIn, sizeOut);
+
+  gl_PointSize = size * aSize * uSize * uResolution.y;
+  gl_PointSize *= (1.0 / -viewPosition.z);
+
+  vColor = aColor;
+}
+`;
+
+const PARTICLES_FRAG = /* glsl */ `
+varying vec3 vColor;
+
+void main() {
+  vec2 coord = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(coord, coord);
+
+  if (r2 > 1.0)
+    discard;
+
+  vec3 normal = vec3(coord, sqrt(1.0 - r2));
+  vec3 lightDir = normalize(vec3(0.5, 0.8, 1.0));
+
+  float diffuse = max(dot(normal, lightDir), 0.0);
+
+  vec3 viewDir = vec3(0.0, 0.0, 1.0);
+  vec3 halfDir = normalize(lightDir + viewDir);
+  float specular = pow(max(dot(normal, halfDir), 0.0), 32.0);
+
+  vec3 color = vColor * (0.5 + 0.5 * diffuse) + vec3(0.05) * specular;
+
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
+// ---------------------------------------------------------------------------
+// PLY parsing helpers
+// ---------------------------------------------------------------------------
 
 type PlyScalarType =
   | 'char'
@@ -86,6 +254,11 @@ const toUint8Array = (bytes: unknown): Uint8Array | null => {
   }
 
   return null;
+};
+
+const getSplatExtension = (splatPath: string): string => {
+  const match = splatPath.toLowerCase().match(/\.([^.]+)$/);
+  return match ? match[1] : '';
 };
 
 const findHeaderEndOffset = (bytes: Uint8Array): number => {
@@ -215,6 +388,257 @@ const readScalar = (
   }
 };
 
+// ---------------------------------------------------------------------------
+// Parse PLY bytes into flat position + color arrays
+// ---------------------------------------------------------------------------
+
+const parsePlyData = (
+  bytes: Uint8Array,
+): { positions: Float32Array; colors: Float32Array; count: number } => {
+  const { vertexCount, vertexStrideBytes, vertexProperties, dataOffset } =
+    parsePlyVertexLayout(bytes);
+
+  const requiredByteLength = dataOffset + vertexCount * vertexStrideBytes;
+  if (bytes.byteLength < requiredByteLength) {
+    throw new Error('PLY file is truncated');
+  }
+
+  const propertyMap = new Map(
+    vertexProperties.map((property) => [property.name, property] as const),
+  );
+  const positionX = propertyMap.get('x');
+  const positionY = propertyMap.get('y');
+  const positionZ = propertyMap.get('z');
+  if (!positionX || !positionY || !positionZ) {
+    throw new Error('PLY vertex properties x/y/z are required');
+  }
+
+  const colorDc0 = propertyMap.get('f_dc_0');
+  const colorDc1 = propertyMap.get('f_dc_1');
+  const colorDc2 = propertyMap.get('f_dc_2');
+  const colorRed = propertyMap.get('red') ?? propertyMap.get('r');
+  const colorGreen = propertyMap.get('green') ?? propertyMap.get('g');
+  const colorBlue = propertyMap.get('blue') ?? propertyMap.get('b');
+  const hasShColor = Boolean(colorDc0 && colorDc1 && colorDc2);
+  const hasRgbColor = Boolean(colorRed && colorGreen && colorBlue);
+
+  const stride = Math.max(1, Math.ceil(vertexCount / MAX_POINTS));
+  const sampleCount = Math.ceil(vertexCount / stride);
+  const positions = new Float32Array(sampleCount * 3);
+  const colors = new Float32Array(sampleCount * 3);
+  const view = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + dataOffset,
+    vertexCount * vertexStrideBytes,
+  );
+  let writeIndex = 0;
+
+  for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
+    if (vertexIndex % stride === 0 && writeIndex < sampleCount) {
+      const vertexOffset = vertexIndex * vertexStrideBytes;
+      const x = readScalar(
+        view,
+        vertexOffset + positionX.offset,
+        positionX.type,
+      );
+      const y = readScalar(
+        view,
+        vertexOffset + positionY.offset,
+        positionY.type,
+      );
+      const z = readScalar(
+        view,
+        vertexOffset + positionZ.offset,
+        positionZ.type,
+      );
+
+      const base = writeIndex * 3;
+      positions[base] = x;
+      positions[base + 1] = y;
+      positions[base + 2] = z;
+
+      if (hasShColor) {
+        const rawR = readScalar(
+          view,
+          vertexOffset + (colorDc0 as VertexProperty).offset,
+          (colorDc0 as VertexProperty).type,
+        );
+        const rawG = readScalar(
+          view,
+          vertexOffset + (colorDc1 as VertexProperty).offset,
+          (colorDc1 as VertexProperty).type,
+        );
+        const rawB = readScalar(
+          view,
+          vertexOffset + (colorDc2 as VertexProperty).offset,
+          (colorDc2 as VertexProperty).type,
+        );
+        colors[base] = clamp(0.5 + SH_C0 * rawR, 0, 1);
+        colors[base + 1] = clamp(0.5 + SH_C0 * rawG, 0, 1);
+        colors[base + 2] = clamp(0.5 + SH_C0 * rawB, 0, 1);
+      } else if (hasRgbColor) {
+        const rawR = readScalar(
+          view,
+          vertexOffset + (colorRed as VertexProperty).offset,
+          (colorRed as VertexProperty).type,
+        );
+        const rawG = readScalar(
+          view,
+          vertexOffset + (colorGreen as VertexProperty).offset,
+          (colorGreen as VertexProperty).type,
+        );
+        const rawB = readScalar(
+          view,
+          vertexOffset + (colorBlue as VertexProperty).offset,
+          (colorBlue as VertexProperty).type,
+        );
+        const normalizedR = rawR > 1 ? rawR / 255 : rawR;
+        const normalizedG = rawG > 1 ? rawG / 255 : rawG;
+        const normalizedB = rawB > 1 ? rawB / 255 : rawB;
+        colors[base] = clamp(normalizedR, 0, 1);
+        colors[base + 1] = clamp(normalizedG, 0, 1);
+        colors[base + 2] = clamp(normalizedB, 0, 1);
+      } else {
+        colors[base] = 1;
+        colors[base + 1] = 1;
+        colors[base + 2] = 1;
+      }
+      writeIndex += 1;
+    }
+  }
+
+  if (writeIndex === 0) {
+    throw new Error('No vertices sampled from PLY');
+  }
+
+  const finalPositions =
+    writeIndex === sampleCount
+      ? positions
+      : positions.subarray(0, writeIndex * 3);
+  const finalColors =
+    writeIndex === sampleCount ? colors : colors.subarray(0, writeIndex * 3);
+
+  return { positions: finalPositions, colors: finalColors, count: writeIndex };
+};
+
+// ---------------------------------------------------------------------------
+// GPGPU particle system setup
+// ---------------------------------------------------------------------------
+
+type GpgpuState = {
+  gpgpu: GPUComputationRenderer;
+  particlesVariable: ReturnType<GPUComputationRenderer['addVariable']>;
+  points: THREE.Points;
+  material: THREE.ShaderMaterial;
+  bounds: THREE.Box3;
+};
+
+const setupGpgpuParticles = (
+  positions: Float32Array,
+  colors: Float32Array,
+  vertexCount: number,
+  gpgpuRenderer: THREE.WebGLRenderer,
+): GpgpuState => {
+  const size = Math.ceil(Math.sqrt(vertexCount));
+
+  const gpgpu = new GPUComputationRenderer(size, size, gpgpuRenderer);
+
+  const baseTexture = gpgpu.createTexture();
+  const particlesTexture = gpgpu.createTexture();
+
+  for (let i = 0; i < size * size; i += 1) {
+    const i3 = i * 3;
+    const i4 = i * 4;
+
+    if (i < vertexCount) {
+      baseTexture.image.data[i4] = positions[i3];
+      baseTexture.image.data[i4 + 1] = positions[i3 + 1];
+      baseTexture.image.data[i4 + 2] = positions[i3 + 2];
+      baseTexture.image.data[i4 + 3] = Math.random();
+
+      particlesTexture.image.data[i4] = positions[i3];
+      particlesTexture.image.data[i4 + 1] = positions[i3 + 1];
+      particlesTexture.image.data[i4 + 2] = positions[i3 + 2];
+      particlesTexture.image.data[i4 + 3] = Math.random();
+    }
+  }
+
+  const particlesVariable = gpgpu.addVariable(
+    'uParticles',
+    GPGPU_PARTICLES_SHADER,
+    particlesTexture,
+  );
+
+  gpgpu.setVariableDependencies(particlesVariable, [particlesVariable]);
+
+  particlesVariable.material.uniforms.uTime = { value: 0 };
+  particlesVariable.material.uniforms.uDeltaTime = { value: 0 };
+  particlesVariable.material.uniforms.uBase = { value: baseTexture };
+  particlesVariable.material.uniforms.uFlowFieldInfluence = { value: 0.5 };
+  particlesVariable.material.uniforms.uFlowFieldStrength = { value: 1.2 };
+  particlesVariable.material.uniforms.uFlowFieldFrequency = { value: 0.5 };
+
+  const gpgpuError = gpgpu.init();
+  if (gpgpuError) {
+    throw new Error(`GPGPU init failed: ${gpgpuError}`);
+  }
+
+  // Build particle geometry
+  const particlesUv = new Float32Array(vertexCount * 2);
+  const sizesArray = new Float32Array(vertexCount);
+
+  for (let i = 0; i < vertexCount; i += 1) {
+    const y = Math.floor(i / size);
+    const x = i % size;
+    particlesUv[i * 2] = (x + 0.5) / size;
+    particlesUv[i * 2 + 1] = (y + 0.5) / size;
+    sizesArray[i] = Math.random();
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setDrawRange(0, vertexCount);
+  geometry.setAttribute(
+    'aParticlesUv',
+    new THREE.BufferAttribute(particlesUv, 2),
+  );
+  geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute('aSize', new THREE.BufferAttribute(sizesArray, 1));
+
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const material = new THREE.ShaderMaterial({
+    vertexShader: PARTICLES_VERT,
+    fragmentShader: PARTICLES_FRAG,
+    uniforms: {
+      uSize: { value: 0.05 },
+      uResolution: {
+        value: new THREE.Vector2(
+          window.innerWidth * pixelRatio,
+          window.innerHeight * pixelRatio,
+        ),
+      },
+      uParticlesTexture: {
+        value: gpgpu.getCurrentRenderTarget(particlesVariable).texture,
+      },
+    },
+    transparent: true,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  points.frustumCulled = false;
+
+  // Compute bounds from positions
+  const posAttr = new THREE.BufferAttribute(positions, 3);
+  const bounds = new THREE.Box3().setFromBufferAttribute(posAttr);
+
+  return { gpgpu, particlesVariable, points, material, bounds };
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export default function SplatViewer({ splat }: SplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -231,7 +655,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let isDisposed = false;
     let animationFrameId = 0;
     let previousFrameTime = performance.now();
-    let loadedPoints: THREE.Points<THREE.BufferGeometry> | null = null;
+    let gpgpuState: GpgpuState | null = null;
     const orbitTarget = new THREE.Vector3(0, 0, 0);
     let orbitRadius = 3.2;
     let orbitYaw = 0.42;
@@ -243,18 +667,16 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let activePointerId: number | null = null;
     let pointerLastX = 0;
     let pointerLastY = 0;
+    let elapsedTime = 0;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
-
-    const ambient = new THREE.AmbientLight(0xffffff, 0.86);
-    scene.add(ambient);
 
     const camera = new THREE.PerspectiveCamera(52, 1, 0.05, 1200);
     camera.position.set(0, 0, 3.2);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: false,
       alpha: false,
       powerPreference: 'high-performance',
     });
@@ -263,7 +685,6 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     mountNode.appendChild(renderer.domElement);
 
     const updateCameraFrustum = () => {
-      // Keep large real-world coordinate splats inside the camera frustum.
       const safeNear = Math.max(0.01, orbitRadius / 2000);
       const safeFar = Math.max(1200, orbitRadius * 6);
       if (camera.near !== safeNear || camera.far !== safeFar) {
@@ -279,6 +700,14 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
+
+      if (gpgpuState) {
+        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        gpgpuState.material.uniforms.uResolution.value.set(
+          width * pixelRatio,
+          height * pixelRatio,
+        );
+      }
     };
 
     updateSize();
@@ -368,159 +797,6 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
     renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
-    const createPointCloud = (
-      bytes: Uint8Array,
-    ): THREE.Points<THREE.BufferGeometry> => {
-      const { vertexCount, vertexStrideBytes, vertexProperties, dataOffset } =
-        parsePlyVertexLayout(bytes);
-
-      const requiredByteLength = dataOffset + vertexCount * vertexStrideBytes;
-      if (bytes.byteLength < requiredByteLength) {
-        throw new Error('PLY file is truncated');
-      }
-
-      const propertyMap = new Map(
-        vertexProperties.map((property) => [property.name, property] as const),
-      );
-      const positionX = propertyMap.get('x');
-      const positionY = propertyMap.get('y');
-      const positionZ = propertyMap.get('z');
-      if (!positionX || !positionY || !positionZ) {
-        throw new Error('PLY vertex properties x/y/z are required');
-      }
-
-      const colorDc0 = propertyMap.get('f_dc_0');
-      const colorDc1 = propertyMap.get('f_dc_1');
-      const colorDc2 = propertyMap.get('f_dc_2');
-      const colorRed = propertyMap.get('red') ?? propertyMap.get('r');
-      const colorGreen = propertyMap.get('green') ?? propertyMap.get('g');
-      const colorBlue = propertyMap.get('blue') ?? propertyMap.get('b');
-      const hasShColor = Boolean(colorDc0 && colorDc1 && colorDc2);
-      const hasRgbColor = Boolean(colorRed && colorGreen && colorBlue);
-
-      const stride = Math.max(1, Math.ceil(vertexCount / MAX_FALLBACK_POINTS));
-      const sampleCount = Math.ceil(vertexCount / stride);
-      const positions = new Float32Array(sampleCount * 3);
-      const colors = new Float32Array(sampleCount * 3);
-      const view = new DataView(
-        bytes.buffer,
-        bytes.byteOffset + dataOffset,
-        vertexCount * vertexStrideBytes,
-      );
-      let writeIndex = 0;
-
-      for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
-        if (vertexIndex % stride === 0 && writeIndex < sampleCount) {
-          const vertexOffset = vertexIndex * vertexStrideBytes;
-          const x = readScalar(
-            view,
-            vertexOffset + positionX.offset,
-            positionX.type,
-          );
-          const y = readScalar(
-            view,
-            vertexOffset + positionY.offset,
-            positionY.type,
-          );
-          const z = readScalar(
-            view,
-            vertexOffset + positionZ.offset,
-            positionZ.type,
-          );
-
-          const base = writeIndex * 3;
-          positions[base] = x;
-          positions[base + 1] = y;
-          positions[base + 2] = z;
-
-          if (hasShColor) {
-            const rawR = readScalar(
-              view,
-              vertexOffset + (colorDc0 as VertexProperty).offset,
-              (colorDc0 as VertexProperty).type,
-            );
-            const rawG = readScalar(
-              view,
-              vertexOffset + (colorDc1 as VertexProperty).offset,
-              (colorDc1 as VertexProperty).type,
-            );
-            const rawB = readScalar(
-              view,
-              vertexOffset + (colorDc2 as VertexProperty).offset,
-              (colorDc2 as VertexProperty).type,
-            );
-            colors[base] = clamp(0.5 + SH_C0 * rawR, 0, 1);
-            colors[base + 1] = clamp(0.5 + SH_C0 * rawG, 0, 1);
-            colors[base + 2] = clamp(0.5 + SH_C0 * rawB, 0, 1);
-          } else if (hasRgbColor) {
-            const rawR = readScalar(
-              view,
-              vertexOffset + (colorRed as VertexProperty).offset,
-              (colorRed as VertexProperty).type,
-            );
-            const rawG = readScalar(
-              view,
-              vertexOffset + (colorGreen as VertexProperty).offset,
-              (colorGreen as VertexProperty).type,
-            );
-            const rawB = readScalar(
-              view,
-              vertexOffset + (colorBlue as VertexProperty).offset,
-              (colorBlue as VertexProperty).type,
-            );
-            const normalizedR = rawR > 1 ? rawR / 255 : rawR;
-            const normalizedG = rawG > 1 ? rawG / 255 : rawG;
-            const normalizedB = rawB > 1 ? rawB / 255 : rawB;
-            colors[base] = clamp(normalizedR, 0, 1);
-            colors[base + 1] = clamp(normalizedG, 0, 1);
-            colors[base + 2] = clamp(normalizedB, 0, 1);
-          } else {
-            colors[base] = 1;
-            colors[base + 1] = 1;
-            colors[base + 2] = 1;
-          }
-          writeIndex += 1;
-        }
-      }
-
-      if (writeIndex === 0) {
-        throw new Error('No vertices sampled from PLY');
-      }
-
-      const finalPositions =
-        writeIndex === sampleCount
-          ? positions
-          : positions.subarray(0, writeIndex * 3);
-      const finalColors =
-        writeIndex === sampleCount
-          ? colors
-          : colors.subarray(0, writeIndex * 3);
-      const positionAttribute = new THREE.BufferAttribute(finalPositions, 3);
-      const colorAttribute = new THREE.BufferAttribute(finalColors, 3);
-
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', positionAttribute);
-      geometry.setAttribute('color', colorAttribute);
-
-      const bounds = new THREE.Box3().setFromBufferAttribute(positionAttribute);
-      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
-      const pointSize =
-        Number.isFinite(sphere.radius) && sphere.radius > 0
-          ? Math.max(0.004, sphere.radius / 440)
-          : 0.01;
-      const material = new THREE.PointsMaterial({
-        size: pointSize,
-        sizeAttenuation: true,
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.92,
-      });
-      const points = new THREE.Points(geometry, material);
-      points.userData.bounds = bounds;
-      points.frustumCulled = false;
-      return points;
-    };
-
     const renderFrame = (timeMs: number) => {
       if (isDisposed) {
         return;
@@ -530,7 +806,9 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       const deltaTime = Math.max(0, (timeMs - previousFrameTime) / 1000);
       previousFrameTime = timeMs;
 
-      if (loadedPoints) {
+      if (gpgpuState) {
+        elapsedTime += deltaTime;
+
         if (!hasManualOrbitInput) {
           orbitYaw += deltaTime * 0.16;
         }
@@ -545,6 +823,17 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         );
         camera.lookAt(orbitTarget);
         camera.updateMatrixWorld();
+
+        // GPGPU update
+        gpgpuState.particlesVariable.material.uniforms.uTime.value =
+          elapsedTime;
+        gpgpuState.particlesVariable.material.uniforms.uDeltaTime.value =
+          deltaTime;
+        gpgpuState.gpgpu.compute();
+        gpgpuState.material.uniforms.uParticlesTexture.value =
+          gpgpuState.gpgpu.getCurrentRenderTarget(
+            gpgpuState.particlesVariable,
+          ).texture;
       }
 
       renderer.render(scene, camera);
@@ -558,36 +847,47 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       setIsViewerReady(false);
 
       try {
+        const extension = getSplatExtension(splat.path);
+
+        if (extension === 'spz') {
+          throw new Error(
+            '`.spz` format is not yet supported. Use a `.ply` file instead.',
+          );
+        }
+
         const bytesFromMain = await window.electron.folder.getSplatBytes(
           splat.path,
         );
         const splatBytes = toUint8Array(bytesFromMain);
         if (!splatBytes) {
-          throw new Error('No .ply bytes available');
+          throw new Error('No `.ply` bytes available');
         }
 
-        const points = createPointCloud(splatBytes);
+        const { positions, colors, count } = parsePlyData(splatBytes);
+
         if (isDisposed) {
-          const pointsMaterial = points.material;
-          points.geometry.dispose();
-          if (pointsMaterial instanceof THREE.Material) {
-            pointsMaterial.dispose();
-          }
           return;
         }
 
-        loadedPoints = points;
-        scene.add(points);
+        const state = setupGpgpuParticles(positions, colors, count, renderer);
 
-        const pointBounds = points.userData.bounds as THREE.Box3 | undefined;
-        if (pointBounds) {
-          applyOrbitFromBounds(pointBounds);
+        if (isDisposed) {
+          state.points.geometry.dispose();
+          state.material.dispose();
+          state.gpgpu.dispose();
+          return;
         }
+
+        gpgpuState = state;
+        state.points.rotation.x = Math.PI;
+        scene.add(state.points);
+        applyOrbitFromBounds(state.bounds);
+
         setIsViewerReady(true);
       } catch (error) {
         if (!isDisposed) {
           setLoadError(
-            `Unable to render this \`.ply\`: ${toErrorMessage(error)}.`,
+            `Unable to render this splat: ${toErrorMessage(error)}.`,
           );
         }
       }
@@ -595,7 +895,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
 
     loadSplat().catch(() => {
       if (!isDisposed) {
-        setLoadError('Unable to render this `.ply`.');
+        setLoadError('Unable to render this splat.');
       }
     });
 
@@ -610,13 +910,11 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       renderer.domElement.removeEventListener('wheel', onWheel);
       renderer.domElement.removeEventListener('contextmenu', onContextMenu);
 
-      if (loadedPoints) {
-        scene.remove(loadedPoints);
-        loadedPoints.geometry.dispose();
-        const pointsMaterial = loadedPoints.material;
-        if (pointsMaterial instanceof THREE.Material) {
-          pointsMaterial.dispose();
-        }
+      if (gpgpuState) {
+        scene.remove(gpgpuState.points);
+        gpgpuState.points.geometry.dispose();
+        gpgpuState.material.dispose();
+        gpgpuState.gpgpu.dispose();
       }
 
       renderer.dispose();

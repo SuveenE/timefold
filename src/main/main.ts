@@ -72,6 +72,7 @@ const SPLAT_FOLDER_NAME = 'splats';
 const SPLAT_PREVIEW_BYTES = 96 * 1024;
 const SPLAT_PREVIEW_LINES = 36;
 const MAX_SPLAT_FILE_BYTES = 512 * 1024 * 1024;
+const SPLAT_EXTENSIONS = ['.spz', '.ply'] as const;
 
 const execFileAsync = promisify(execFile);
 
@@ -224,9 +225,34 @@ const fileExists = async (filePath: string): Promise<boolean> => {
   }
 };
 
-const buildSplatPath = (albumPath: string, imageName: string): string => {
+const buildSplatPath = (
+  albumPath: string,
+  imageName: string,
+  extension: (typeof SPLAT_EXTENSIONS)[number],
+): string => {
   const imageBaseName = path.parse(imageName).name;
-  return path.join(albumPath, SPLAT_FOLDER_NAME, `${imageBaseName}.ply`);
+  return path.join(
+    albumPath,
+    SPLAT_FOLDER_NAME,
+    `${imageBaseName}${extension}`,
+  );
+};
+
+const resolveImageSplatPath = async (
+  albumPath: string,
+  imageName: string,
+): Promise<string | null> => {
+  const candidatePaths = SPLAT_EXTENSIONS.map((extension) =>
+    buildSplatPath(albumPath, imageName, extension),
+  );
+  const candidateResults = await Promise.all(
+    candidatePaths.map(async (candidatePath) => ({
+      path: candidatePath,
+      exists: await fileExists(candidatePath),
+    })),
+  );
+  const matchedCandidate = candidateResults.find((item) => item.exists);
+  return matchedCandidate ? matchedCandidate.path : null;
 };
 
 const toSplatPreview = (content: string): string | null => {
@@ -604,7 +630,15 @@ ipcMain.handle(
       return null;
     }
 
-    const splatPath = buildSplatPath(resolvedAlbumPath, resolvedImageName);
+    const splatPath = await resolveImageSplatPath(
+      resolvedAlbumPath,
+      resolvedImageName,
+    );
+
+    if (!splatPath) {
+      return null;
+    }
+
     return readSplat(splatPath);
   },
 );
@@ -615,10 +649,13 @@ ipcMain.handle('folder:get-splat-bytes', async (_event, splatPath: unknown) => {
   }
 
   const resolvedSplatPath = path.resolve(splatPath.trim());
+  const splatExtension = path.extname(resolvedSplatPath).toLowerCase();
 
   if (
     resolvedSplatPath.length === 0 ||
-    path.extname(resolvedSplatPath).toLowerCase() !== '.ply'
+    !SPLAT_EXTENSIONS.includes(
+      splatExtension as (typeof SPLAT_EXTENSIONS)[number],
+    )
   ) {
     return null;
   }

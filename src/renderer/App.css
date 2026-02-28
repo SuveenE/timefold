@@ -1060,9 +1060,9 @@ body {
   width: min(1040px, calc(100% - 20px));
   max-height: min(90vh, 920px);
   display: grid;
-  grid-template-columns: minmax(280px, 1.1fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(420px, 1.45fr) minmax(220px, 0.72fr);
   gap: 18px;
-  padding: 16px;
+  padding: 52px 16px 16px;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(8, 8, 12, 0.94);
@@ -1076,6 +1076,7 @@ body {
   position: absolute;
   right: 12px;
   top: 12px;
+  z-index: 5;
   border: 1px solid rgba(236, 236, 236, 0.25);
   border-radius: 999px;
   padding: 6px 12px;
@@ -1096,19 +1097,23 @@ body {
 }
 
 .image-card-media {
+  position: relative;
+  order: 2;
+  align-self: start;
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: rgba(2, 2, 2, 0.95);
-  min-height: 280px;
+  min-height: 220px;
   display: grid;
   place-items: center;
+  max-height: 56vh;
 }
 
 .image-card-media img {
   display: block;
   width: 100%;
-  max-height: 72vh;
+  max-height: 56vh;
   object-fit: contain;
   opacity: 0;
   transition: opacity 180ms ease;
@@ -1160,6 +1165,7 @@ body {
 }
 
 .image-card-details {
+  order: 1;
   min-width: 0;
   overflow: auto;
   padding-right: 6px;
@@ -1236,7 +1242,7 @@ body {
 
 .image-card-splat-viewer {
   width: 100%;
-  height: 240px;
+  height: 300px;
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);

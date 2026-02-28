@@ -38,7 +38,7 @@ export const buildMetadataLocation = (albumLocation: string): string => {
 
 export const buildExpectedSplatName = (imageName: string): string => {
   const imageBaseName = imageName.replace(/\.[^.]+$/, '');
-  return `${imageBaseName}.ply`;
+  return `${imageBaseName}.spz`;
 };
 
 export const formatCapturedAt = (capturedAt?: string | null): string => {
