@@ -430,6 +430,45 @@ body {
   transform: rotateY(67deg);
 }
 
+.explore-year-globe {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 640px;
+  height: 640px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  border: 1px solid rgba(193, 211, 245, 0.24);
+  background:
+    radial-gradient(circle at 26% 24%, rgba(91, 112, 163, 0.22), transparent 43%),
+    radial-gradient(circle at 73% 76%, rgba(145, 113, 55, 0.2), transparent 41%),
+    radial-gradient(circle at 50% 50%, rgba(16, 24, 41, 0.44), rgba(5, 8, 15, 0.12) 74%);
+  box-shadow:
+    inset -34px -32px 72px rgba(0, 0, 0, 0.34),
+    inset 24px 18px 54px rgba(182, 200, 242, 0.18),
+    0 0 68px rgba(82, 112, 168, 0.18);
+}
+
+.explore-year-globe::before,
+.explore-year-globe::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(210, 222, 248, 0.18);
+}
+
+.explore-year-globe::before {
+  inset: 7%;
+  transform: rotateX(66deg);
+}
+
+.explore-year-globe::after {
+  inset: 13%;
+  transform: rotateY(66deg);
+}
+
 .explore-location-meta {
   position: absolute;
   top: 20px;
@@ -458,6 +497,46 @@ body {
   margin-top: 3px;
   font-size: 0.77rem;
   color: rgba(224, 230, 240, 0.82);
+}
+
+.explore-time-meta {
+  position: absolute;
+  top: 20px;
+  left: 106px;
+  z-index: 30;
+  border-radius: 12px;
+  padding: 9px 11px;
+  max-width: min(440px, calc(100% - 126px));
+  border: 1px solid rgba(230, 237, 248, 0.2);
+  background: rgba(7, 9, 14, 0.66);
+  backdrop-filter: blur(8px);
+}
+
+.explore-time-meta-title {
+  margin: 0;
+  font-size: 0.86rem;
+  letter-spacing: 0.01em;
+  color: rgba(246, 249, 255, 0.95);
+}
+
+.explore-time-meta-chips {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.explore-time-meta-chip {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.74rem;
+  color: rgba(243, 246, 252, 0.92);
+  border: 1px solid rgba(212, 223, 248, 0.24);
+  background: rgba(165, 176, 205, 0.13);
+}
+
+.explore-time-meta-chip.muted {
+  opacity: 0.82;
 }
 
 .explore-cluster-board {
@@ -563,6 +642,16 @@ body {
 }
 
 .explore-card.location-card .explore-card-frame img {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+}
+
+.explore-card.time-card .explore-card-frame {
+  border-radius: 9px;
+  border-color: rgba(206, 221, 255, 0.28);
+}
+
+.explore-card.time-card .explore-card-frame img {
   aspect-ratio: 1 / 1;
   width: 100%;
 }
@@ -1215,6 +1304,16 @@ body {
     height: 590px;
   }
 
+  .explore-year-globe {
+    width: 560px;
+    height: 560px;
+  }
+
+  .explore-time-meta {
+    left: 88px;
+    max-width: min(380px, calc(100% - 104px));
+  }
+
   .settings-body {
     padding: 14px;
   }
@@ -1311,6 +1410,17 @@ body {
   .explore-location-globe {
     width: 420px;
     height: 420px;
+  }
+
+  .explore-year-globe {
+    width: 390px;
+    height: 390px;
+  }
+
+  .explore-time-meta {
+    top: 10px;
+    left: 10px;
+    max-width: calc(100% - 20px);
   }
 
   .explore-cluster-grid {

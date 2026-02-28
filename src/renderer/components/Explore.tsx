@@ -19,6 +19,8 @@ import {
 } from '../utils/gallery';
 
 const LOCATION_GLOBE_RADIUS = 320;
+const TIME_GLOBE_RADIUS = 300;
+const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
 const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
 
 type ExploreCardStyle = CSSProperties & {
@@ -37,6 +39,12 @@ type ExploreSceneItem = {
 type ParsedCoordinates = {
   latitude: number;
   longitude: number;
+};
+
+type TimeCluster = {
+  label: string;
+  year: number | null;
+  images: ListedImage[];
 };
 
 const hasValidCoordinates = (latitude: number, longitude: number): boolean => {
@@ -103,6 +111,38 @@ const projectCoordinatesToGlobe = (
     x: Math.sin(lonRadians) * cosLatitude * radius,
     y: -Math.sin(latRadians) * radius,
     z: Math.cos(lonRadians) * cosLatitude * radius,
+  };
+};
+
+const buildYearValue = (capturedAt?: string | null): number | null => {
+  if (!capturedAt) {
+    return null;
+  }
+
+  const parsed = new Date(capturedAt);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.getUTCFullYear();
+};
+
+const buildTangentBasis = (latitude: number, longitude: number) => {
+  const latRadians = (latitude * Math.PI) / 180;
+  const lonRadians = (longitude * Math.PI) / 180;
+
+  return {
+    east: {
+      x: Math.cos(lonRadians),
+      y: 0,
+      z: -Math.sin(lonRadians),
+    },
+    north: {
+      x: -Math.sin(lonRadians) * Math.sin(latRadians),
+      y: -Math.cos(latRadians),
+      z: -Math.cos(lonRadians) * Math.sin(latRadians),
+    },
   };
 };
 
@@ -193,52 +233,118 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
     }, []);
   }, [images]);
 
-  const timeClusters = useMemo(() => {
-    const groups = new Map<string, typeof images>();
+  const timeClusters = useMemo<TimeCluster[]>(() => {
+    const groups = new Map<string, TimeCluster>();
 
     images.forEach((image) => {
-      if (!image.capturedAt) {
-        const currentUnknown = groups.get('Unknown year') || [];
-        groups.set('Unknown year', [...currentUnknown, image]);
+      const yearValue = buildYearValue(image.capturedAt);
+      const label = yearValue === null ? 'Unknown year' : String(yearValue);
+      const existing = groups.get(label);
+
+      if (existing) {
+        existing.images.push(image);
         return;
       }
 
-      const parsed = new Date(image.capturedAt);
-      const year = Number.isNaN(parsed.getTime())
-        ? 'Unknown year'
-        : String(parsed.getUTCFullYear());
-      const current = groups.get(year) || [];
-      groups.set(year, [...current, image]);
+      groups.set(label, {
+        label,
+        year: yearValue,
+        images: [image],
+      });
     });
 
-    return [...groups.entries()]
-      .map(([label, groupedImages]) => ({
-        label,
-        images: groupedImages,
-      }))
-      .sort((first, second) => {
-        if (first.label === 'Unknown year') {
-          return 1;
-        }
+    return [...groups.values()].sort((first, second) => {
+      if (first.year === null) {
+        return 1;
+      }
 
-        if (second.label === 'Unknown year') {
-          return -1;
-        }
+      if (second.year === null) {
+        return -1;
+      }
 
-        return Number(second.label) - Number(first.label);
-      });
+      return second.year - first.year;
+    });
   }, [images]);
 
-  const isSceneMode = mode !== 'time';
-  const activeSceneItems = mode === 'location' ? locationItems : exploreItems;
+  const timeItems = useMemo<ExploreSceneItem[]>(() => {
+    const totalClusters = timeClusters.length;
+
+    if (totalClusters === 0) {
+      return [];
+    }
+
+    const indexSpan = Math.max(totalClusters - 1, 1);
+
+    return timeClusters.flatMap((cluster, clusterIndex) => {
+      const latitude =
+        cluster.year === null ? -72 : 60 - (clusterIndex / indexSpan) * 120;
+      const longitude = ((clusterIndex * 137.50776405003785) % 360) - 180;
+      const center = projectCoordinatesToGlobe(
+        latitude,
+        longitude,
+        TIME_GLOBE_RADIUS,
+      );
+      const basis = buildTangentBasis(latitude, longitude);
+      const clusterCompression = clamp(
+        1 - Math.min(cluster.images.length, 18) * 0.018,
+        0.68,
+        1,
+      );
+
+      return cluster.images.map((image, imageIndex) => {
+        const angle = imageIndex * GOLDEN_ANGLE_RADIANS;
+        const radialDistance =
+          8 + Math.sqrt(imageIndex + 1) * 12 * clusterCompression;
+        const offsetEast = Math.cos(angle) * radialDistance;
+        const offsetNorth = Math.sin(angle) * radialDistance;
+        const x =
+          center.x + basis.east.x * offsetEast + basis.north.x * offsetNorth;
+        const y =
+          center.y + basis.east.y * offsetEast + basis.north.y * offsetNorth;
+        const z =
+          center.z + basis.east.z * offsetEast + basis.north.z * offsetNorth;
+        const depthHint = clamp(
+          (z + TIME_GLOBE_RADIUS) / (TIME_GLOBE_RADIUS * 2),
+          0,
+          1,
+        );
+
+        return {
+          image,
+          layout: {
+            x,
+            y,
+            z,
+            width: 56 + depthHint * 24,
+            rotation: Math.sin(angle) * 4,
+            opacity: clamp(0.48 + depthHint * 0.46, 0.42, 1),
+          },
+        };
+      });
+    });
+  }, [timeClusters]);
+
+  const activeSceneItems = useMemo<ExploreSceneItem[]>(() => {
+    if (mode === 'location') {
+      return locationItems;
+    }
+
+    if (mode === 'time') {
+      return timeItems;
+    }
+
+    return exploreItems;
+  }, [exploreItems, locationItems, mode, timeItems]);
   const imagesMissingCoordinates = images.length - locationItems.length;
+  const visibleTimeClusters = timeClusters.slice(0, 8);
+  const hiddenTimeClusterCount = Math.max(timeClusters.length - 8, 0);
 
   useEffect(() => {
     let frameId = 0;
     let observer: ResizeObserver | null = null;
     let recomputeFit: (() => void) | null = null;
 
-    if (isSceneMode && activeSceneItems.length > 0) {
+    if (activeSceneItems.length > 0) {
       const stageNode = exploreStageRef.current;
 
       if (stageNode) {
@@ -362,7 +468,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [activeSceneItems, isSceneMode]);
+  }, [activeSceneItems]);
 
   const renderExploreState = useCallback(
     (rotationDeg: number, zoomDepth: number) => {
@@ -384,7 +490,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
   );
 
   const exploreMotion = useGlobeMotion({
-    enabled: isSceneMode && activeSceneItems.length > 0,
+    enabled: activeSceneItems.length > 0,
     syncToken: activeSceneItems,
     onRender: renderExploreState,
     dragRotationPerPixel: EXPLORE_DRAG_ROTATION_PER_PIXEL,
@@ -414,9 +520,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
 
       <section
         ref={exploreStageRef}
-        className={`explore-stage ${exploreMotion.isDragging ? 'dragging' : ''} ${
-          mode === 'time' ? 'cluster-mode' : ''
-        }`}
+        className={`explore-stage ${exploreMotion.isDragging ? 'dragging' : ''}`}
         onPointerDown={exploreMotion.onPointerDown}
         onPointerMove={exploreMotion.onPointerMove}
         onPointerUp={exploreMotion.onPointerUp}
@@ -462,7 +566,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           <button
             type="button"
             className={`explore-sidebar-button ${mode === 'time' ? 'active' : ''}`}
-            aria-label="Show year clusters"
+            aria-label="Show year clusters globe"
             onClick={() =>
               setMode((current) => (current === 'time' ? 'free' : 'time'))
             }
@@ -471,11 +575,14 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           </button>
         </aside>
 
-        {images.length > 0 && isSceneMode ? (
+        {images.length > 0 ? (
           <div className="explore-scene">
             <div className="explore-world" ref={exploreWorldRef}>
               {mode === 'location' ? (
                 <div className="explore-location-globe" aria-hidden="true" />
+              ) : null}
+              {mode === 'time' ? (
+                <div className="explore-year-globe" aria-hidden="true" />
               ) : null}
               {activeSceneItems.map(({ image, layout }) => {
                 const cardStyle: ExploreCardStyle = {
@@ -494,7 +601,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                     key={`${mode}-${image.path}`}
                     className={`explore-card ${
                       mode === 'location' ? 'location-card' : ''
-                    }`}
+                    } ${mode === 'time' ? 'time-card' : ''}`}
                     style={cardStyle}
                   >
                     <button
@@ -538,47 +645,33 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                 </p>
               </div>
             ) : null}
-          </div>
-        ) : null}
 
-        {images.length > 0 && mode === 'time' ? (
-          <div
-            className="explore-cluster-board"
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <div className="explore-cluster-grid">
-              {timeClusters.map((cluster) => (
-                <section
-                  key={`${mode}-${cluster.label}`}
-                  className="explore-cluster-card"
-                >
-                  <header className="explore-cluster-header">
-                    <p className="explore-cluster-label">{cluster.label}</p>
-                    <span className="explore-cluster-count">
-                      {cluster.images.length}
+            {mode === 'time' ? (
+              <div
+                className="explore-time-meta"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                <p className="explore-time-meta-title">
+                  {timeClusters.length} year
+                  {timeClusters.length === 1 ? ' cluster' : ' clusters'}
+                </p>
+                <div className="explore-time-meta-chips">
+                  {visibleTimeClusters.map((cluster) => (
+                    <span
+                      key={`time-cluster-${cluster.label}`}
+                      className="explore-time-meta-chip"
+                    >
+                      {cluster.label} ({cluster.images.length})
                     </span>
-                  </header>
-                  <div className="explore-cluster-thumbs">
-                    {cluster.images.slice(0, 8).map((image) => (
-                      <button
-                        key={`${cluster.label}-${image.path}`}
-                        type="button"
-                        className="explore-thumb-button"
-                        aria-label={`Open details for ${image.name}`}
-                        onClick={() => onImageSelect(image)}
-                      >
-                        <img
-                          src={image.url}
-                          alt=""
-                          loading="lazy"
-                          draggable={false}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
+                  ))}
+                  {hiddenTimeClusterCount > 0 ? (
+                    <span className="explore-time-meta-chip muted">
+                      +{hiddenTimeClusterCount} more
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
