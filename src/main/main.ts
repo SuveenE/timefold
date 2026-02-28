@@ -42,6 +42,8 @@ type ListedImage = {
   path: string;
   url: string;
   ext: string;
+  capturedAt?: string | null;
+  location?: string | null;
 };
 
 const IMAGE_EXTENSIONS = new Set([
@@ -77,6 +79,95 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
   avif: 'image/avif',
   heic: 'image/heic',
   heif: 'image/heif',
+};
+
+type ImageMetadata = {
+  capturedAt: string | null;
+  location: string | null;
+};
+
+const parseMdlsValue = (output: string, key: string): string | null => {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = output.match(new RegExp(`${escapedKey}\\s*=\\s*(.*)`));
+
+  if (!match) {
+    return null;
+  }
+
+  const value = match[1].trim();
+
+  if (value === '(null)' || value.length === 0) {
+    return null;
+  }
+
+  return value.replace(/^"(.*)"$/, '$1');
+};
+
+const toIsoDateIfValid = (value: string): string | null => {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+};
+
+const extractImageMetadata = async (
+  absolutePath: string,
+): Promise<ImageMetadata> => {
+  let capturedAt: string | null = null;
+  let location: string | null = null;
+
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync('mdls', [
+        '-name',
+        'kMDItemContentCreationDate',
+        '-name',
+        'kMDItemLatitude',
+        '-name',
+        'kMDItemLongitude',
+        absolutePath,
+      ]);
+      const rawCreationDate = parseMdlsValue(
+        stdout,
+        'kMDItemContentCreationDate',
+      );
+      const rawLatitude = parseMdlsValue(stdout, 'kMDItemLatitude');
+      const rawLongitude = parseMdlsValue(stdout, 'kMDItemLongitude');
+
+      if (rawCreationDate) {
+        capturedAt = toIsoDateIfValid(rawCreationDate) || rawCreationDate;
+      }
+
+      if (rawLatitude && rawLongitude) {
+        const latitude = Number(rawLatitude);
+        const longitude = Number(rawLongitude);
+
+        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          location = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        }
+      }
+    } catch {
+      // no-op; use fallback values below
+    }
+  }
+
+  if (!capturedAt) {
+    try {
+      const stats = await fs.stat(absolutePath);
+      const fileDate = stats.birthtimeMs > 0 ? stats.birthtime : stats.mtime;
+      capturedAt = fileDate.toISOString();
+    } catch {
+      capturedAt = null;
+    }
+  }
+
+  return {
+    capturedAt,
+    location,
+  };
 };
 
 const fileExists = async (filePath: string): Promise<boolean> => {
@@ -209,11 +300,15 @@ const toImageRecord = async (
     return null;
   }
 
+  const metadata = await extractImageMetadata(absolutePath);
+
   return {
     name: path.basename(absolutePath),
     path: absolutePath,
     url: previewUrl,
     ext: extension,
+    capturedAt: metadata.capturedAt,
+    location: metadata.location,
   };
 };
 

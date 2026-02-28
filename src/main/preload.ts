@@ -8,6 +8,8 @@ export type ListedImage = {
   path: string;
   url: string;
   ext: string;
+  capturedAt?: string | null;
+  location?: string | null;
 };
 
 const electronHandler = {
