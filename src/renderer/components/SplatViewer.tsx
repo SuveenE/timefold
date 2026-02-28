@@ -733,6 +733,8 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let orbitPitch = 0.14;
     let minOrbitRadius = 0.8;
     let maxOrbitRadius = 24;
+    let orbitMinCameraY = Number.NEGATIVE_INFINITY;
+    let orbitMinPitch = -1.2;
     let hasManualOrbitInput = false;
     let isPointerDragging = false;
     let activePointerId: number | null = null;
@@ -785,6 +787,23 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       }
     };
 
+    const clampPitchForGround = (pitch: number) => {
+      let clampedPitch = clamp(pitch, -1.2, 1.2);
+      if (!Number.isFinite(orbitMinCameraY)) {
+        return clampedPitch;
+      }
+
+      const safeRadius = Math.max(orbitRadius, 0.001);
+      const lowerSin = clamp(
+        (orbitMinCameraY - orbitTarget.y) / safeRadius,
+        -0.999,
+        0.999,
+      );
+      const minPitch = Math.max(-1.2, Math.asin(lowerSin));
+      clampedPitch = Math.max(minPitch, clampedPitch);
+      return clampedPitch;
+    };
+
     updateSize();
     const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(mountNode);
@@ -795,6 +814,12 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         distanceMultiplier?: number;
         minDistance?: number;
         initialPitch?: number;
+        fitFraction?: number;
+        targetYRatio?: number;
+        targetZRatio?: number;
+        groundYRatio?: number;
+        lockMinPitchToInitial?: boolean;
+        initialYaw?: number;
       },
     ) => {
       const sphere = bounds.getBoundingSphere(new THREE.Sphere());
@@ -809,9 +834,65 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         const distanceMultiplier = options?.distanceMultiplier ?? 3.2;
         const minDistance = options?.minDistance ?? 1.45;
         const initialPitch = options?.initialPitch ?? 0.14;
+        const fitFraction = options?.fitFraction;
         orbitTarget.copy(sphere.center);
-        orbitRadius = Math.max(minDistance, sphere.radius * distanceMultiplier);
-        orbitPitch = initialPitch;
+        if (typeof options?.targetYRatio === 'number') {
+          const size = bounds.getSize(new THREE.Vector3());
+          if (Number.isFinite(size.y) && size.y > 0) {
+            orbitTarget.y =
+              bounds.min.y + clamp(options.targetYRatio, 0, 1) * size.y;
+          }
+        }
+        if (typeof options?.targetZRatio === 'number') {
+          const size = bounds.getSize(new THREE.Vector3());
+          if (Number.isFinite(size.z) && size.z > 0) {
+            orbitTarget.z =
+              bounds.min.z + clamp(options.targetZRatio, 0, 1) * size.z;
+          }
+        }
+        if (typeof options?.groundYRatio === 'number') {
+          const size = bounds.getSize(new THREE.Vector3());
+          if (Number.isFinite(size.y) && size.y > 0) {
+            orbitMinCameraY =
+              bounds.min.y + clamp(options.groundYRatio, 0, 1) * size.y;
+          }
+        } else {
+          orbitMinCameraY = Number.NEGATIVE_INFINITY;
+        }
+        let nextOrbitRadius = Math.max(
+          minDistance,
+          sphere.radius * distanceMultiplier,
+        );
+
+        if (
+          typeof fitFraction === 'number' &&
+          Number.isFinite(fitFraction) &&
+          fitFraction > 0 &&
+          fitFraction <= 1
+        ) {
+          const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+          const horizontalFov =
+            2 * Math.atan(Math.tan(verticalFov * 0.5) * camera.aspect);
+          const limitingFov = Math.min(verticalFov, horizontalFov);
+          const targetAngularDiameter = limitingFov * fitFraction;
+          const safeHalfAngle = clamp(
+            targetAngularDiameter * 0.5,
+            0.05,
+            Math.PI * 0.49,
+          );
+          const fittedDistance = sphere.radius / Math.tan(safeHalfAngle);
+          if (Number.isFinite(fittedDistance) && fittedDistance > 0) {
+            nextOrbitRadius = Math.max(minDistance, fittedDistance);
+          }
+        }
+
+        orbitRadius = nextOrbitRadius;
+        orbitPitch = clampPitchForGround(initialPitch);
+        orbitMinPitch =
+          options?.lockMinPitchToInitial === true ? orbitPitch : -1.2;
+        if (typeof options?.initialYaw === 'number') {
+          orbitYaw = options.initialYaw;
+        }
         minOrbitRadius = Math.max(0.35, sphere.radius * 0.22);
         maxOrbitRadius = Math.max(minOrbitRadius * 2, sphere.radius * 14);
         orbitRadius = clamp(orbitRadius, minOrbitRadius, maxOrbitRadius);
@@ -851,7 +932,9 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       pointerLastY = event.clientY;
 
       orbitYaw -= deltaX * 0.006;
-      orbitPitch = clamp(orbitPitch - deltaY * 0.0045, -1.2, 1.2);
+      orbitPitch = clampPitchForGround(
+        Math.max(orbitMinPitch, orbitPitch - deltaY * 0.0045),
+      );
       event.preventDefault();
     };
 
@@ -916,7 +999,10 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         hoverPitchOffset += (hoverPitchTarget - hoverPitchOffset) * hoverLerp;
         updateCameraFrustum();
         const yaw = orbitYaw + hoverYawOffset;
-        const pitch = clamp(orbitPitch + hoverPitchOffset, -1.2, 1.2);
+        orbitPitch = clampPitchForGround(Math.max(orbitMinPitch, orbitPitch));
+        const pitch = clampPitchForGround(
+          Math.max(orbitMinPitch, orbitPitch + hoverPitchOffset),
+        );
         const cosPitch = Math.cos(pitch);
 
         camera.position.set(
@@ -1008,13 +1094,25 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
           scene.add(mesh);
           const sparkBounds =
             typeof mesh.getBoundingBox === 'function'
-              ? mesh.getBoundingBox(true)
+              ? mesh.getBoundingBox(false)
               : new THREE.Box3().setFromObject(mesh);
+          camera.fov = 40;
+          camera.updateProjectionMatrix();
           applyOrbitFromBounds(sparkBounds, {
-            distanceMultiplier: 1.4,
-            minDistance: 0.72,
-            initialPitch: 0.06,
+            distanceMultiplier: 0.13,
+            minDistance: 0.1,
+            initialPitch: 0,
+            targetYRatio: 0,
+            targetZRatio: 0.5,
+            groundYRatio: 0,
+            lockMinPitchToInitial: false,
+            initialYaw: 0,
           });
+          hoverYawOffset = 0;
+          hoverPitchOffset = 0;
+          hoverYawTarget = 0;
+          hoverPitchTarget = 0;
+          hasManualOrbitInput = true;
           setLoadInfo(null);
           setIsViewerReady(true);
         } else {
