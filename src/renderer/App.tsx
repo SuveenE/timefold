@@ -114,6 +114,9 @@ type CameraState = {
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
+const CLOUD_DRAG_MIN_OFFSET = -640;
+const CLOUD_DRAG_MAX_OFFSET = 640;
+const CLOUD_DRAG_EDGE_RESISTANCE = 0.32;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -227,12 +230,18 @@ function Home({
 }: HomeProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
-  const [cloudOffsetX, setCloudOffsetX] = useState(0);
   const [isCloudDragging, setIsCloudDragging] = useState(false);
-  const cloudDragState = useRef({
-    active: false,
+  const cloudLayerRef = useRef<HTMLDivElement | null>(null);
+  const cloudMotion = useRef({
+    dragging: false,
     pointerId: -1,
     lastX: 0,
+    lastPointerTime: 0,
+    lastFrameTime: 0,
+    position: 0,
+    target: 0,
+    velocity: 0,
+    rafId: 0,
   });
   const [failedImagePaths, setFailedImagePaths] = useState<
     Record<string, true>
@@ -344,47 +353,188 @@ function Home({
     });
   }, [renderableImages]);
 
+  const renderCloudPosition = (nextX: number) => {
+    const cloudNode = cloudLayerRef.current;
+
+    if (!cloudNode) {
+      return;
+    }
+
+    cloudNode.style.transform = `translate3d(${nextX.toFixed(2)}px, 0, 0)`;
+  };
+
+  const applyCloudEdgeResistance = (value: number): number => {
+    if (value < CLOUD_DRAG_MIN_OFFSET) {
+      return (
+        CLOUD_DRAG_MIN_OFFSET +
+        (value - CLOUD_DRAG_MIN_OFFSET) * CLOUD_DRAG_EDGE_RESISTANCE
+      );
+    }
+
+    if (value > CLOUD_DRAG_MAX_OFFSET) {
+      return (
+        CLOUD_DRAG_MAX_OFFSET +
+        (value - CLOUD_DRAG_MAX_OFFSET) * CLOUD_DRAG_EDGE_RESISTANCE
+      );
+    }
+
+    return value;
+  };
+
+  const runCloudFrame = (timestamp: number) => {
+    const motion = cloudMotion.current;
+
+    if (motion.lastFrameTime === 0) {
+      motion.lastFrameTime = timestamp;
+    }
+
+    const elapsed = clamp(timestamp - motion.lastFrameTime, 8, 34);
+    motion.lastFrameTime = timestamp;
+    const frameFactor = elapsed / 16.667;
+
+    if (!motion.dragging) {
+      motion.target += motion.velocity * elapsed;
+      motion.velocity *= 0.9 ** frameFactor;
+
+      if (
+        motion.target < CLOUD_DRAG_MIN_OFFSET ||
+        motion.target > CLOUD_DRAG_MAX_OFFSET
+      ) {
+        const boundedTarget = clamp(
+          motion.target,
+          CLOUD_DRAG_MIN_OFFSET,
+          CLOUD_DRAG_MAX_OFFSET,
+        );
+        const correction = boundedTarget - motion.target;
+        motion.velocity += correction * 0.0032 * elapsed;
+      }
+    }
+
+    const follow = 1 - 0.24 ** frameFactor;
+    motion.position += (motion.target - motion.position) * follow;
+    renderCloudPosition(motion.position);
+
+    const shouldContinue =
+      motion.dragging ||
+      Math.abs(motion.target - motion.position) > 0.15 ||
+      Math.abs(motion.velocity) > 0.012 ||
+      motion.target < CLOUD_DRAG_MIN_OFFSET - 0.15 ||
+      motion.target > CLOUD_DRAG_MAX_OFFSET + 0.15;
+
+    if (shouldContinue) {
+      motion.rafId = window.requestAnimationFrame(runCloudFrame);
+      return;
+    }
+
+    motion.target = clamp(
+      motion.target,
+      CLOUD_DRAG_MIN_OFFSET,
+      CLOUD_DRAG_MAX_OFFSET,
+    );
+    motion.position = motion.target;
+    motion.velocity = 0;
+    motion.lastFrameTime = 0;
+    motion.rafId = 0;
+    renderCloudPosition(motion.position);
+  };
+
+  const startCloudAnimation = () => {
+    const motion = cloudMotion.current;
+
+    if (motion.rafId !== 0) {
+      return;
+    }
+
+    motion.rafId = window.requestAnimationFrame(runCloudFrame);
+  };
+
   const beginCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (renderableImages.length === 0) {
       return;
     }
 
-    cloudDragState.current = {
-      active: true,
-      pointerId: event.pointerId,
-      lastX: event.clientX,
-    };
+    const motion = cloudMotion.current;
+    motion.dragging = true;
+    motion.pointerId = event.pointerId;
+    motion.lastX = event.clientX;
+    motion.lastPointerTime = event.timeStamp;
+    motion.velocity = 0;
     setIsCloudDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
+    startCloudAnimation();
   };
 
   const updateCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (
-      !cloudDragState.current.active ||
-      cloudDragState.current.pointerId !== event.pointerId
-    ) {
+    const motion = cloudMotion.current;
+
+    if (!motion.dragging || motion.pointerId !== event.pointerId) {
       return;
     }
 
-    const deltaX = event.clientX - cloudDragState.current.lastX;
-    cloudDragState.current.lastX = event.clientX;
+    const deltaX = event.clientX - motion.lastX;
+    const elapsedPointer = clamp(
+      event.timeStamp - motion.lastPointerTime,
+      8,
+      42,
+    );
+    motion.lastX = event.clientX;
+    motion.lastPointerTime = event.timeStamp;
+    motion.target = applyCloudEdgeResistance(motion.target + deltaX);
+    motion.velocity = deltaX / elapsedPointer;
 
-    setCloudOffsetX((current) => clamp(current + deltaX, -420, 420));
+    startCloudAnimation();
   };
 
   const endCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (cloudDragState.current.pointerId !== event.pointerId) {
+    const motion = cloudMotion.current;
+
+    if (motion.pointerId !== event.pointerId) {
       return;
     }
 
-    cloudDragState.current.active = false;
-    cloudDragState.current.pointerId = -1;
+    motion.dragging = false;
+    motion.pointerId = -1;
     setIsCloudDragging(false);
+    startCloudAnimation();
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
+
+  useEffect(() => {
+    if (renderableImages.length > 0) {
+      return;
+    }
+
+    const motion = cloudMotion.current;
+
+    if (motion.rafId !== 0) {
+      window.cancelAnimationFrame(motion.rafId);
+    }
+
+    motion.dragging = false;
+    motion.pointerId = -1;
+    motion.lastX = 0;
+    motion.lastPointerTime = 0;
+    motion.lastFrameTime = 0;
+    motion.position = 0;
+    motion.target = 0;
+    motion.velocity = 0;
+    motion.rafId = 0;
+    renderCloudPosition(0);
+    setIsCloudDragging(false);
+  }, [renderableImages.length]);
+
+  useEffect(() => {
+    const motion = cloudMotion.current;
+
+    return () => {
+      if (motion.rafId !== 0) {
+        window.cancelAnimationFrame(motion.rafId);
+      }
+    };
+  }, []);
 
   return (
     <main className="gallery-screen">
@@ -400,10 +550,7 @@ function Home({
         aria-live="polite"
       >
         {renderableImages.length > 0 && (
-          <div
-            className="cloud-drag-layer"
-            style={{ transform: `translate3d(${cloudOffsetX}px, 0, 0)` }}
-          >
+          <div className="cloud-drag-layer" ref={cloudLayerRef}>
             <div className="photo-cloud">
               {cloudItems.map(({ image, layout }) => {
                 const tileStyle: TileStyle = {

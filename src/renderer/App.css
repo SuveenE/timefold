@@ -218,6 +218,8 @@ body {
   position: absolute;
   inset: 0;
   will-change: transform;
+  transform: translate3d(0, 0, 0);
+  user-select: none;
 }
 
 .photo-cloud {
