@@ -14,6 +14,8 @@ import {
 import type { ListedImage } from '../main/preload';
 import homeIcon from '../../assets/icons/home.png';
 import settingsIcon from '../../assets/icons/settings.png';
+import locationIcon from '../../assets/icons/map-pin.png';
+import timeIcon from '../../assets/icons/clock.png';
 import './App.css';
 
 type ClusterLayout = {
@@ -87,6 +89,8 @@ type HomeProps = {
 type ExploreProps = {
   images: ListedImage[];
 };
+
+type ExploreMode = 'free' | 'location' | 'time';
 
 type SettingsValues = {
   photoAlbumLocation: string;
@@ -473,6 +477,7 @@ function Explore({ images }: ExploreProps) {
   const navigate = useNavigate();
   const [camera, setCamera] = useState<CameraState>(INITIAL_CAMERA);
   const [isDragging, setIsDragging] = useState(false);
+  const [mode, setMode] = useState<ExploreMode>('free');
   const dragState = useRef({
     active: false,
     pointerId: -1,
@@ -489,6 +494,59 @@ function Explore({ images }: ExploreProps) {
     });
   }, [images]);
 
+  const locationClusters = useMemo(() => {
+    const groups = new Map<string, ListedImage[]>();
+
+    images.forEach((image) => {
+      const key = image.location?.trim() || 'Unknown location';
+      const current = groups.get(key) || [];
+      groups.set(key, [...current, image]);
+    });
+
+    return [...groups.entries()]
+      .map(([label, groupedImages]) => ({
+        label,
+        images: groupedImages,
+      }))
+      .sort((first, second) => second.images.length - first.images.length);
+  }, [images]);
+
+  const timeClusters = useMemo(() => {
+    const groups = new Map<string, ListedImage[]>();
+
+    images.forEach((image) => {
+      if (!image.capturedAt) {
+        const currentUnknown = groups.get('Unknown year') || [];
+        groups.set('Unknown year', [...currentUnknown, image]);
+        return;
+      }
+
+      const parsed = new Date(image.capturedAt);
+      const year = Number.isNaN(parsed.getTime())
+        ? 'Unknown year'
+        : String(parsed.getUTCFullYear());
+      const current = groups.get(year) || [];
+      groups.set(year, [...current, image]);
+    });
+
+    return [...groups.entries()]
+      .map(([label, groupedImages]) => ({
+        label,
+        images: groupedImages,
+      }))
+      .sort((first, second) => {
+        if (first.label === 'Unknown year') {
+          return 1;
+        }
+
+        if (second.label === 'Unknown year') {
+          return -1;
+        }
+
+        return Number(second.label) - Number(first.label);
+      });
+  }, [images]);
+
   const worldStyle = useMemo((): CSSProperties => {
     return {
       transform: `translate3d(${camera.x}px, ${camera.y}px, ${camera.zoom}px) rotateX(${camera.rotateX}deg) rotateY(${camera.rotateY}deg)`,
@@ -496,6 +554,10 @@ function Explore({ images }: ExploreProps) {
   }, [camera]);
 
   const beginDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (mode !== 'free') {
+      return;
+    }
+
     dragState.current = {
       active: true,
       pointerId: event.pointerId,
@@ -507,6 +569,10 @@ function Explore({ images }: ExploreProps) {
   };
 
   const updateDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (mode !== 'free') {
+      return;
+    }
+
     if (
       !dragState.current.active ||
       dragState.current.pointerId !== event.pointerId
@@ -532,6 +598,10 @@ function Explore({ images }: ExploreProps) {
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (mode !== 'free') {
+      return;
+    }
+
     if (dragState.current.pointerId !== event.pointerId) {
       return;
     }
@@ -546,6 +616,10 @@ function Explore({ images }: ExploreProps) {
   };
 
   const handleWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    if (mode !== 'free') {
+      return;
+    }
+
     event.preventDefault();
 
     setCamera((current) => {
@@ -576,7 +650,9 @@ function Explore({ images }: ExploreProps) {
       <div className="grain" aria-hidden="true" />
 
       <section
-        className={`explore-stage ${isDragging ? 'dragging' : ''}`}
+        className={`explore-stage ${isDragging ? 'dragging' : ''} ${
+          mode !== 'free' ? 'cluster-mode' : ''
+        }`}
         onPointerDown={beginDrag}
         onPointerMove={updateDrag}
         onPointerUp={endDrag}
@@ -604,9 +680,33 @@ function Explore({ images }: ExploreProps) {
           >
             <img src={settingsIcon} alt="" aria-hidden="true" />
           </button>
+          <button
+            type="button"
+            className={`explore-sidebar-button ${
+              mode === 'location' ? 'active' : ''
+            }`}
+            aria-label="Show location clusters"
+            onClick={() =>
+              setMode((current) =>
+                current === 'location' ? 'free' : 'location',
+              )
+            }
+          >
+            <img src={locationIcon} alt="" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={`explore-sidebar-button ${mode === 'time' ? 'active' : ''}`}
+            aria-label="Show year clusters"
+            onClick={() =>
+              setMode((current) => (current === 'time' ? 'free' : 'time'))
+            }
+          >
+            <img src={timeIcon} alt="" aria-hidden="true" />
+          </button>
         </aside>
 
-        {images.length > 0 ? (
+        {images.length > 0 && mode === 'free' ? (
           <div className="explore-scene">
             <div className="explore-world" style={worldStyle}>
               {exploreItems.map(({ image, layout }) => {
@@ -645,14 +745,52 @@ function Explore({ images }: ExploreProps) {
               })}
             </div>
           </div>
-        ) : (
+        ) : null}
+
+        {images.length > 0 && mode !== 'free' ? (
+          <div
+            className="explore-cluster-board"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="explore-cluster-grid">
+              {(mode === 'location' ? locationClusters : timeClusters).map(
+                (cluster) => (
+                  <section
+                    key={`${mode}-${cluster.label}`}
+                    className="explore-cluster-card"
+                  >
+                    <header className="explore-cluster-header">
+                      <p className="explore-cluster-label">{cluster.label}</p>
+                      <span className="explore-cluster-count">
+                        {cluster.images.length}
+                      </span>
+                    </header>
+                    <div className="explore-cluster-thumbs">
+                      {cluster.images.slice(0, 8).map((image) => (
+                        <img
+                          key={`${cluster.label}-${image.path}`}
+                          src={image.url}
+                          alt=""
+                          loading="lazy"
+                          draggable={false}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ),
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {images.length === 0 ? (
           <div className="status-panel explore-empty">
             <p className="status-title">No images loaded yet</p>
             <p className="status-copy">
               Go back and choose a local folder first.
             </p>
           </div>
-        )}
+        ) : null}
       </section>
     </main>
   );

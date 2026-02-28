@@ -284,6 +284,10 @@ body {
   cursor: grabbing;
 }
 
+.explore-stage.cluster-mode {
+  cursor: default;
+}
+
 .explore-sidebar {
   position: absolute;
   left: 18px;
@@ -322,6 +326,11 @@ body {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.explore-sidebar-button.active {
+  background: rgba(232, 232, 232, 0.24);
+  border-color: rgba(255, 255, 255, 0.62);
+}
+
 .explore-sidebar-button:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.46);
   outline-offset: 2px;
@@ -339,6 +348,73 @@ body {
   transform-style: preserve-3d;
   display: grid;
   place-items: center;
+}
+
+.explore-cluster-board {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  z-index: 20;
+  padding: 22px 20px 20px 106px;
+}
+
+.explore-cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.explore-cluster-card {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(12, 12, 16, 0.82);
+  padding: 10px;
+  box-shadow:
+    0 8px 18px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.explore-cluster-header {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.explore-cluster-label {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: 0.01em;
+  color: #f0f0f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.explore-cluster-count {
+  min-width: 28px;
+  text-align: center;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.explore-cluster-thumbs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.explore-cluster-thumbs img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .explore-world {
@@ -795,6 +871,10 @@ body {
     gap: 7px;
   }
 
+  .explore-cluster-board {
+    padding-left: 88px;
+  }
+
   .settings-body {
     padding: 14px;
   }
@@ -856,12 +936,21 @@ body {
     bottom: 12px;
     left: 50%;
     transform: translateX(-50%);
-    width: min(220px, calc(100% - 22px));
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: min(360px, calc(100% - 22px));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .explore-sidebar-button {
     min-height: 46px;
     padding: 8px;
+  }
+
+  .explore-cluster-board {
+    padding: 14px 10px 78px;
+  }
+
+  .explore-cluster-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
   }
 }
