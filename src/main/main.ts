@@ -86,6 +86,14 @@ type ImageMetadata = {
   location: string | null;
 };
 
+type PersistedImageMetadata = {
+  name: string;
+  path: string;
+  ext: string;
+  capturedAt: string | null;
+  location: string | null;
+};
+
 const parseMdlsValue = (output: string, key: string): string | null => {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = output.match(new RegExp(`${escapedKey}\\s*=\\s*(.*)`));
@@ -393,6 +401,33 @@ const listFolderImages = async (rootFolder: string): Promise<ListedImage[]> => {
   });
 };
 
+const persistImageMetadata = async (
+  images: ListedImage[],
+  metadataFolderPath: string,
+): Promise<void> => {
+  const metadataFilePath = path.join(metadataFolderPath, 'images.json');
+  const items: PersistedImageMetadata[] = images.map((image) => ({
+    name: image.name,
+    path: image.path,
+    ext: image.ext,
+    capturedAt: image.capturedAt ?? null,
+    location: image.location ?? null,
+  }));
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    total: items.length,
+    items,
+  };
+
+  await fs.mkdir(metadataFolderPath, { recursive: true });
+  await fs.writeFile(
+    metadataFilePath,
+    JSON.stringify(payload, null, 2),
+    'utf8',
+  );
+};
+
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
   console.log(msgTemplate(arg));
@@ -417,25 +452,44 @@ ipcMain.handle('dialog:select-folder', async () => {
   return result.filePaths[0];
 });
 
-ipcMain.handle('folder:list-images', async (_event, folderPath: unknown) => {
-  if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
-    return [];
-  }
-
-  const resolvedPath = folderPath.trim();
-
-  try {
-    const stats = await fs.stat(resolvedPath);
-
-    if (!stats.isDirectory()) {
+ipcMain.handle(
+  'folder:list-images',
+  async (_event, folderPath: unknown, metadataFolderPath: unknown) => {
+    if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
       return [];
     }
-  } catch {
-    return [];
-  }
 
-  return listFolderImages(resolvedPath);
-});
+    const resolvedPath = folderPath.trim();
+
+    try {
+      const stats = await fs.stat(resolvedPath);
+
+      if (!stats.isDirectory()) {
+        return [];
+      }
+    } catch {
+      return [];
+    }
+
+    const images = await listFolderImages(resolvedPath);
+    const resolvedMetadataFolderPath =
+      typeof metadataFolderPath === 'string' &&
+      metadataFolderPath.trim().length > 0
+        ? metadataFolderPath.trim()
+        : path.join(resolvedPath, 'metadata');
+
+    try {
+      await persistImageMetadata(images, resolvedMetadataFolderPath);
+    } catch (error) {
+      log.warn('Unable to save image metadata', {
+        metadataFolderPath: resolvedMetadataFolderPath,
+        error,
+      });
+    }
+
+    return images;
+  },
+);
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');

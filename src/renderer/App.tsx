@@ -764,12 +764,18 @@ function AppRoutes() {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   }, [settings]);
 
-  const loadFolderImages = async (folderPath: string) => {
+  const loadFolderImages = async (
+    folderPath: string,
+    metadataFolderPath?: string,
+  ) => {
     setIsLoading(true);
     setErrorMessage(null);
 
     try {
-      const folderImages = await window.electron.folder.listImages(folderPath);
+      const folderImages = await window.electron.folder.listImages(
+        folderPath,
+        metadataFolderPath,
+      );
       setImages(folderImages);
 
       if (folderImages.length === 0) {
@@ -807,7 +813,10 @@ function AppRoutes() {
           metadataLocation: buildMetadataLocation(selectedFolder),
         };
       });
-      await loadFolderImages(selectedFolder);
+      const effectiveMetadataLocation =
+        settings.metadataLocation.trim() ||
+        buildMetadataLocation(selectedFolder);
+      await loadFolderImages(selectedFolder, effectiveMetadataLocation);
     } finally {
       setIsSelecting(false);
     }
@@ -818,7 +827,10 @@ function AppRoutes() {
       return;
     }
 
-    await loadFolderImages(activeFolder);
+    const effectiveMetadataLocation =
+      settings.metadataLocation.trim() ||
+      buildMetadataLocation(settings.photoAlbumLocation.trim() || activeFolder);
+    await loadFolderImages(activeFolder, effectiveMetadataLocation);
   };
 
   return (

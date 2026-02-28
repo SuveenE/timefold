@@ -36,10 +36,12 @@ const electronHandler = {
         string | null
       >;
     },
-    listImages(folderPath: string) {
-      return ipcRenderer.invoke('folder:list-images', folderPath) as Promise<
-        ListedImage[]
-      >;
+    listImages(folderPath: string, metadataFolderPath?: string) {
+      return ipcRenderer.invoke(
+        'folder:list-images',
+        folderPath,
+        metadataFolderPath,
+      ) as Promise<ListedImage[]>;
     },
   },
 };
