@@ -73,6 +73,7 @@ const SPLAT_PREVIEW_BYTES = 96 * 1024;
 const SPLAT_PREVIEW_LINES = 36;
 const MAX_SPLAT_FILE_BYTES = 512 * 1024 * 1024;
 const SPLAT_EXTENSIONS = ['.spz', '.ply'] as const;
+const LOCAL_API_BASE_URL = 'http://localhost:8000';
 
 const execFileAsync = promisify(execFile);
 
@@ -274,6 +275,112 @@ const fileExists = async (filePath: string): Promise<boolean> => {
     return true;
   } catch {
     return false;
+  }
+};
+
+const readApiResponse = async (response: Response): Promise<unknown> => {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    return await response.text();
+  } catch {
+    return null;
+  }
+};
+
+const parseCountryFromPayload = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const candidateRecord = payload as Record<string, unknown>;
+  const countryCandidate = candidateRecord.country;
+
+  if (typeof countryCandidate === 'string' && countryCandidate.trim().length) {
+    return countryCandidate.trim();
+  }
+
+  return null;
+};
+
+const toImageBlob = async (
+  imagePath: string,
+): Promise<{ blob: Blob; fileName: string } | null> => {
+  const resolvedPath = path.resolve(imagePath.trim());
+
+  if (resolvedPath.length === 0) {
+    return null;
+  }
+
+  try {
+    const stats = await fs.stat(resolvedPath);
+
+    if (!stats.isFile()) {
+      return null;
+    }
+
+    const extension = path.extname(resolvedPath).slice(1).toLowerCase();
+    const mimeType = IMAGE_MIME_BY_EXT[extension] || 'application/octet-stream';
+    const buffer = await fs.readFile(resolvedPath);
+    const blob = new Blob([buffer], { type: mimeType });
+
+    return {
+      blob,
+      fileName: path.basename(resolvedPath),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const postImageToEndpoint = async (
+  endpointPath: string,
+  imagePath: string,
+  includeDisplayName = false,
+): Promise<{ status: number; data: unknown }> => {
+  const imageData = await toImageBlob(imagePath);
+
+  if (!imageData) {
+    return {
+      status: 400,
+      data: { error: 'Invalid image path' },
+    };
+  }
+
+  const formData = new FormData();
+  formData.set('file', imageData.blob, imageData.fileName);
+
+  if (includeDisplayName) {
+    const displayName = path.parse(imageData.fileName).name;
+    formData.set('display_name', displayName);
+  }
+
+  try {
+    const response = await fetch(`${LOCAL_API_BASE_URL}${endpointPath}`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await readApiResponse(response);
+    return {
+      status: response.status,
+      data,
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      data: {
+        error: 'Request failed',
+        detail: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
 };
 
@@ -729,6 +836,71 @@ ipcMain.handle('folder:get-splat-bytes', async (_event, splatPath: unknown) => {
     return null;
   }
 });
+
+ipcMain.handle(
+  'api:fetch-country-by-coordinates',
+  async (_event, latitude: unknown, longitude: unknown) => {
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+      return {
+        country: null,
+        raw: { error: 'Latitude and longitude must be numbers' },
+      };
+    }
+
+    try {
+      const response = await fetch(
+        `${LOCAL_API_BASE_URL}/analyze/photo-attributes`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latitude, longitude }),
+        },
+      );
+      const payload = await readApiResponse(response);
+
+      return {
+        country: parseCountryFromPayload(payload),
+        raw: payload,
+      };
+    } catch (error) {
+      return {
+        country: null,
+        raw: {
+          error: 'Request failed',
+          detail: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  },
+);
+
+ipcMain.handle(
+  'api:generate-world-from-image',
+  async (_event, imagePath: unknown) => {
+    if (typeof imagePath !== 'string' || imagePath.trim().length === 0) {
+      return {
+        status: 400,
+        data: { error: 'Image path must be a non-empty string' },
+      };
+    }
+
+    return postImageToEndpoint('/worldlabs/image-input', imagePath, true);
+  },
+);
+
+ipcMain.handle(
+  'api:find-photo-attributes',
+  async (_event, imagePath: unknown) => {
+    if (typeof imagePath !== 'string' || imagePath.trim().length === 0) {
+      return {
+        status: 400,
+        data: { error: 'Image path must be a non-empty string' },
+      };
+    }
+
+    return postImageToEndpoint('/analyze/photo-attributes', imagePath);
+  },
+);
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
