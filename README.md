@@ -1,13 +1,15 @@
-# Timefold
+# Timefold - Private, local-first 3D photo explorer
 
 <img src="assets/icon.png" alt="Timefold logo" width="120" />
 
-Timefold is a local-first desktop photo explorer for browsing personal image libraries in an immersive 3D interface. It lets you load images from your own folders, navigate memories in spatial clusters, explore by time or location, and preview matching Gaussian splat reconstructions when available.
+Timefold is a local-first desktop photo explorer for browsing personal image libraries in an immersive 3D interface. It lets you load images from your own folders, navigate memories in spatial clusters, explore by time or location, inspect rich image attributes, and preview matching Gaussian splat reconstructions when available.
 
 ## Features
 
 - **Image Cloud Feature**: Loads your local album into a floating 3D collage you can scan and open quickly.
 - **Explore Modes**: Switch between free exploration, location-based grouping, and time-based grouping.
+- **Rich Image Attributes**: Surfaces detailed per-image metadata and AI-derived attributes such as scene, mood, weather, and detected objects.
+- **Private and Local by Default**: Reads directly from local folders so your photo library stays on your machine without mandatory cloud upload.
 - **Gaussian Splats Feature**: Opens interactive `.ply` previews matched to selected images.
 
 ## Image Cloud Feature
