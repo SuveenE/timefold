@@ -19,9 +19,9 @@ import timeIcon from '../../assets/icons/clock.png';
 import './App.css';
 
 type ClusterLayout = {
-  ringAngle: number;
-  ringRadius: number;
-  ringY: number;
+  sphereX: number;
+  sphereY: number;
+  sphereZ: number;
   width: number;
   rotation: number;
   orbitX: number;
@@ -37,9 +37,9 @@ type ClusterLayout = {
 };
 
 type TileStyle = CSSProperties & {
-  '--ring-angle': string;
-  '--ring-radius': string;
-  '--ring-y': string;
+  '--sphere-x': string;
+  '--sphere-y': string;
+  '--sphere-z': string;
   '--orbit-x': string;
   '--orbit-y': string;
   '--orbit-duration': string;
@@ -51,9 +51,6 @@ type TileStyle = CSSProperties & {
   '--tile-rotation': string;
   '--tile-opacity': string;
   '--tile-blur': string;
-  '--tile-focus-opacity': string;
-  '--tile-focus-blur': string;
-  '--tile-depth-scale': string;
 };
 
 type ExploreLayout = {
@@ -171,22 +168,23 @@ const createClusterLayout = (
 ): ClusterLayout => {
   const random = createRandom(createSeed(`${seedKey}:${index}:${total}`));
   const safeTotal = Math.max(total, 1);
-  const ringLane = index % 3;
-  const laneOffset = ringLane - 1;
-  const baseAngle = (index / safeTotal) * 360;
-  const angleJitter = (random() - 0.5) * (6 + 130 / safeTotal);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const unitY = 1 - ((index + 0.5) / safeTotal) * 2;
+  const radial = Math.sqrt(Math.max(0, 1 - unitY * unitY));
+  const theta = goldenAngle * index + (random() - 0.5) * 0.22;
+  const sphereRadius = 312 + (random() - 0.5) * 54;
   const depth = random();
   const orbitDuration = 13 + random() * 14;
-  const radiusBase = 260 + ringLane * 78;
-  const ringRadius = radiusBase + (random() - 0.5) * 44;
-  const ringY =
-    (random() - 0.5) * (250 + laneOffset * 28) +
-    laneOffset * (30 + random() * 14);
+  const sphereX =
+    Math.cos(theta) * radial * sphereRadius + (random() - 0.5) * 16;
+  const sphereY = unitY * sphereRadius * 1.02 + (random() - 0.5) * 22;
+  const sphereZ =
+    Math.sin(theta) * radial * sphereRadius + (random() - 0.5) * 16;
 
   return {
-    ringAngle: baseAngle + angleJitter,
-    ringRadius,
-    ringY,
+    sphereX,
+    sphereY,
+    sphereZ,
     width: 64 + random() * 90 + depth * 38,
     rotation: (random() - 0.5) * 7,
     orbitX: (random() - 0.5) * (8 + (1 - depth) * 14),
@@ -197,8 +195,8 @@ const createClusterLayout = (
     bobX: (random() - 0.5) * 10,
     bobY: (random() - 0.5) * 14,
     bobDuration: 4 + random() * 6,
-    opacity: clamp(0.58 + depth * 0.38, 0.48, 1),
-    blur: clamp((1 - depth) * 0.28, 0, 0.42),
+    opacity: clamp(0.72 + depth * 0.28, 0.7, 1),
+    blur: 0,
   };
 };
 
@@ -246,10 +244,6 @@ function Home({
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [isCloudDragging, setIsCloudDragging] = useState(false);
   const cloudLayerRef = useRef<HTMLDivElement | null>(null);
-  const tileNodeRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const cloudItemsRef = useRef<
-    Array<{ image: ListedImage; layout: ClusterLayout }>
-  >([]);
   const cloudMotion = useRef({
     dragging: false,
     pointerId: -1,
@@ -386,67 +380,7 @@ function Home({
       const zoomValue = `${zoomDepth.toFixed(2)}px`;
       cloudNode.style.setProperty('--cloud-rotation-y', rotation);
       cloudNode.style.setProperty('--cloud-zoom-z', zoomValue);
-      cloudNode.style.transform = `translate3d(0, 0, 0) rotateY(${rotation})`;
-    },
-    [],
-  );
-
-  const updateTileDepthStyles = useCallback(
-    (rotationDeg: number, zoomDepth: number) => {
-      const rotationRad = (rotationDeg * Math.PI) / 180;
-      const focusPlane = -220 - zoomDepth * 0.92;
-      const focusSpread = 210;
-
-      cloudItemsRef.current.forEach(({ image, layout }) => {
-        const tileNode = tileNodeRefs.current.get(image.path);
-
-        if (!tileNode) {
-          return;
-        }
-
-        const ringAngleRad = (layout.ringAngle * Math.PI) / 180;
-        const worldZ =
-          -Math.cos(ringAngleRad + rotationRad) * layout.ringRadius - zoomDepth;
-        const nearFactor = clamp((420 - worldZ) / 840, 0, 1);
-        const focus = clamp(
-          1 - Math.abs(worldZ - focusPlane) / focusSpread,
-          0,
-          1,
-        );
-        const farFade =
-          worldZ > 220 ? clamp(1 - (worldZ - 220) / 520, 0.25, 1) : 1;
-        const closeFade =
-          worldZ < -620 ? clamp(1 - (-620 - worldZ) / 260, 0.3, 1) : 1;
-        const visualOpacity = clamp(
-          layout.opacity *
-            (0.38 + focus * 0.62) *
-            (0.48 + nearFactor * 0.52) *
-            farFade *
-            closeFade,
-          0.12,
-          1,
-        );
-        const visualBlur = clamp(
-          layout.blur + (1 - focus) * 1.45 + (1 - nearFactor) * 0.55,
-          0,
-          3.4,
-        );
-        const depthScale = clamp(
-          0.9 + focus * 0.14 + nearFactor * 0.07,
-          0.82,
-          1.18,
-        );
-
-        tileNode.style.setProperty(
-          '--tile-focus-opacity',
-          visualOpacity.toFixed(3),
-        );
-        tileNode.style.setProperty(
-          '--tile-focus-blur',
-          `${visualBlur.toFixed(2)}px`,
-        );
-        tileNode.style.setProperty('--tile-depth-scale', depthScale.toFixed(3));
-      });
+      cloudNode.style.transform = `translate3d(0, 0, 0) rotateX(-5deg) rotateY(${rotation})`;
     },
     [],
   );
@@ -481,7 +415,6 @@ function Home({
     }
 
     renderCloudState(motion.position, motion.zoom);
-    updateTileDepthStyles(motion.position, motion.zoom);
 
     const shouldContinue =
       motion.dragging ||
@@ -500,7 +433,6 @@ function Home({
     motion.lastFrameTime = 0;
     motion.rafId = 0;
     renderCloudState(motion.position, motion.zoom);
-    updateTileDepthStyles(motion.position, motion.zoom);
   };
 
   const startCloudAnimation = () => {
@@ -584,17 +516,15 @@ function Home({
   };
 
   useEffect(() => {
-    cloudItemsRef.current = cloudItems;
     const rafId = window.requestAnimationFrame(() => {
       const motion = cloudMotion.current;
       renderCloudState(motion.position, motion.zoom);
-      updateTileDepthStyles(motion.position, motion.zoom);
     });
 
     return () => {
       window.cancelAnimationFrame(rafId);
     };
-  }, [cloudItems, renderCloudState, updateTileDepthStyles]);
+  }, [cloudItems, renderCloudState]);
 
   useEffect(() => {
     if (renderableImages.length > 0) {
@@ -654,9 +584,9 @@ function Home({
                   left: '50%',
                   top: '47%',
                   width: `${layout.width}px`,
-                  '--ring-angle': `${layout.ringAngle}deg`,
-                  '--ring-radius': `${layout.ringRadius}px`,
-                  '--ring-y': `${layout.ringY}px`,
+                  '--sphere-x': `${layout.sphereX}px`,
+                  '--sphere-y': `${layout.sphereY}px`,
+                  '--sphere-z': `${layout.sphereZ}px`,
                   '--orbit-x': `${layout.orbitX}px`,
                   '--orbit-y': `${layout.orbitY}px`,
                   '--orbit-duration': `${layout.orbitDuration}s`,
@@ -668,9 +598,6 @@ function Home({
                   '--tile-rotation': `${layout.rotation}deg`,
                   '--tile-opacity': `${layout.opacity}`,
                   '--tile-blur': `${layout.blur}px`,
-                  '--tile-focus-opacity': `${layout.opacity}`,
-                  '--tile-focus-blur': `${layout.blur}px`,
-                  '--tile-depth-scale': '1',
                 };
 
                 return (
@@ -678,14 +605,6 @@ function Home({
                     key={image.path}
                     className="photo-tile"
                     style={tileStyle}
-                    ref={(node) => {
-                      if (node) {
-                        tileNodeRefs.current.set(image.path, node);
-                        return;
-                      }
-
-                      tileNodeRefs.current.delete(image.path);
-                    }}
                   >
                     <div className="orbit-track">
                       <div className="orbit-orient">
