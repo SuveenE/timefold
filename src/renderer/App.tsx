@@ -860,7 +860,13 @@ function Home({
 function Explore({ images, onImageSelect }: ExploreProps) {
   const navigate = useNavigate();
   const [mode, setMode] = useState<ExploreMode>('free');
+  const exploreStageRef = useRef<HTMLElement | null>(null);
+  const exploreSidebarRef = useRef<HTMLElement | null>(null);
   const exploreWorldRef = useRef<HTMLDivElement | null>(null);
+  const [exploreFrame, setExploreFrame] = useState({
+    offsetX: 0,
+    fitZoom: -220,
+  });
 
   const exploreItems = useMemo(() => {
     const items = images.map((image, index) => {
@@ -954,6 +960,137 @@ function Explore({ images, onImageSelect }: ExploreProps) {
       });
   }, [images]);
 
+  useEffect(() => {
+    let frameId = 0;
+    let observer: ResizeObserver | null = null;
+    let recomputeFit: (() => void) | null = null;
+
+    if (mode === 'free' && exploreItems.length > 0) {
+      const stageNode = exploreStageRef.current;
+
+      if (stageNode) {
+        const perspective = 1700;
+
+        recomputeFit = () => {
+          if (frameId !== 0) {
+            window.cancelAnimationFrame(frameId);
+          }
+
+          frameId = window.requestAnimationFrame(() => {
+            const stageRect = stageNode.getBoundingClientRect();
+
+            if (stageRect.width < 2 || stageRect.height < 2) {
+              return;
+            }
+
+            const sidebarRect =
+              exploreSidebarRef.current?.getBoundingClientRect();
+            const sidebarRight = sidebarRect
+              ? clamp(
+                  sidebarRect.right - stageRect.left,
+                  0,
+                  stageRect.width * 0.6,
+                )
+              : 0;
+            const sidebarPad = sidebarRight > 0 ? sidebarRight + 14 : 0;
+            const availableHalfWidth = Math.max(
+              (stageRect.width - sidebarPad - 30) * 0.5,
+              160,
+            );
+            const availableHalfHeight = Math.max(
+              (stageRect.height - 34) * 0.5,
+              150,
+            );
+
+            const fitsAtZoom = (zoom: number): boolean => {
+              return exploreItems.every(({ layout }) => {
+                const translatedZ = layout.z + zoom;
+                const denominator = perspective - translatedZ;
+
+                if (denominator <= 120) {
+                  return false;
+                }
+
+                const scale = perspective / denominator;
+                const halfWidth = layout.width * 0.5 + 10;
+                const halfHeight = Math.min(140, layout.width * 0.85) + 10;
+                const projectedHalfX = (Math.abs(layout.x) + halfWidth) * scale;
+                const projectedHalfY =
+                  (Math.abs(layout.y) + halfHeight) * scale;
+                return (
+                  projectedHalfX <= availableHalfWidth &&
+                  projectedHalfY <= availableHalfHeight
+                );
+              });
+            };
+
+            let lower = EXPLORE_ZOOM_MIN;
+            let upper = EXPLORE_ZOOM_MAX;
+            let bestZoom = EXPLORE_ZOOM_MIN;
+
+            if (fitsAtZoom(lower)) {
+              for (let iteration = 0; iteration < 26; iteration += 1) {
+                const mid = (lower + upper) * 0.5;
+
+                if (fitsAtZoom(mid)) {
+                  bestZoom = mid;
+                  lower = mid;
+                } else {
+                  upper = mid;
+                }
+              }
+            }
+
+            const nextFrame = {
+              offsetX: sidebarPad * 0.5,
+              fitZoom: clamp(bestZoom - 24, EXPLORE_ZOOM_MIN, EXPLORE_ZOOM_MAX),
+            };
+
+            setExploreFrame((current) => {
+              if (
+                Math.abs(current.offsetX - nextFrame.offsetX) < 0.25 &&
+                Math.abs(current.fitZoom - nextFrame.fitZoom) < 0.25
+              ) {
+                return current;
+              }
+
+              return nextFrame;
+            });
+          });
+        };
+
+        recomputeFit();
+
+        observer = new ResizeObserver(() => {
+          if (recomputeFit) {
+            recomputeFit();
+          }
+        });
+
+        observer.observe(stageNode);
+
+        const sidebarNode = exploreSidebarRef.current;
+        if (sidebarNode) {
+          observer.observe(sidebarNode);
+        }
+
+        window.addEventListener('resize', recomputeFit);
+      }
+    }
+
+    return () => {
+      if (recomputeFit) {
+        window.removeEventListener('resize', recomputeFit);
+      }
+      if (observer) {
+        observer.disconnect();
+      }
+      if (frameId !== 0) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [exploreItems, mode]);
+
   const renderExploreState = useCallback(
     (rotationDeg: number, zoomDepth: number) => {
       const worldNode = exploreWorldRef.current;
@@ -963,12 +1100,14 @@ function Explore({ images, onImageSelect }: ExploreProps) {
       }
 
       const rotation = `${rotationDeg.toFixed(2)}deg`;
-      const zoomValue = `${zoomDepth.toFixed(2)}px`;
+      const finalZoom = zoomDepth + exploreFrame.fitZoom;
+      const zoomValue = `${finalZoom.toFixed(2)}px`;
+      const offsetXValue = `${exploreFrame.offsetX.toFixed(2)}px`;
       worldNode.style.setProperty('--ex-world-rotation-y', rotation);
       worldNode.style.setProperty('--ex-world-zoom-z', zoomValue);
-      worldNode.style.transform = `translate3d(0, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
+      worldNode.style.transform = `translate3d(${offsetXValue}, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
     },
-    [],
+    [exploreFrame.fitZoom, exploreFrame.offsetX],
   );
 
   const exploreMotion = useGlobeMotion({
@@ -1001,6 +1140,7 @@ function Explore({ images, onImageSelect }: ExploreProps) {
       <div className="grain" aria-hidden="true" />
 
       <section
+        ref={exploreStageRef}
         className={`explore-stage ${exploreMotion.isDragging ? 'dragging' : ''} ${
           mode !== 'free' ? 'cluster-mode' : ''
         }`}
@@ -1012,6 +1152,7 @@ function Explore({ images, onImageSelect }: ExploreProps) {
         aria-label="Interactive image space"
       >
         <aside
+          ref={exploreSidebarRef}
           className="explore-sidebar"
           onPointerDown={(event) => event.stopPropagation()}
         >
