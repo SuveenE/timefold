@@ -739,6 +739,10 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let pointerLastX = 0;
     let pointerLastY = 0;
     let elapsedTime = 0;
+    let hoverYawOffset = 0;
+    let hoverPitchOffset = 0;
+    let hoverYawTarget = 0;
+    let hoverPitchTarget = 0;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
@@ -819,6 +823,14 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     };
 
     const onPointerMove = (event: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      const safeWidth = Math.max(1, bounds.width);
+      const safeHeight = Math.max(1, bounds.height);
+      const pointerX = clamp((event.clientX - bounds.left) / safeWidth, 0, 1);
+      const pointerY = clamp((event.clientY - bounds.top) / safeHeight, 0, 1);
+      hoverYawTarget = (pointerX * 2 - 1) * 0.36;
+      hoverPitchTarget = (1 - pointerY * 2) * 0.22;
+
       if (!isPointerDragging || activePointerId !== event.pointerId) {
         return;
       }
@@ -831,6 +843,11 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       orbitYaw -= deltaX * 0.006;
       orbitPitch = clamp(orbitPitch - deltaY * 0.0045, -1.2, 1.2);
       event.preventDefault();
+    };
+
+    const onPointerLeave = () => {
+      hoverYawTarget = 0;
+      hoverPitchTarget = 0;
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -863,6 +880,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
 
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerleave', onPointerLeave);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
     renderer.domElement.addEventListener('pointercancel', onPointerUp);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
@@ -877,20 +895,24 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       const deltaTime = Math.max(0, (timeMs - previousFrameTime) / 1000);
       previousFrameTime = timeMs;
 
-      if (gpgpuState) {
+      if (gpgpuState || sparkMesh) {
         elapsedTime += deltaTime;
 
         if (!hasManualOrbitInput) {
           orbitYaw += deltaTime * 0.16;
         }
+        const hoverLerp = Math.min(1, deltaTime * 8);
+        hoverYawOffset += (hoverYawTarget - hoverYawOffset) * hoverLerp;
+        hoverPitchOffset += (hoverPitchTarget - hoverPitchOffset) * hoverLerp;
         updateCameraFrustum();
-        const pitch = clamp(orbitPitch, -1.2, 1.2);
+        const yaw = orbitYaw + hoverYawOffset;
+        const pitch = clamp(orbitPitch + hoverPitchOffset, -1.2, 1.2);
         const cosPitch = Math.cos(pitch);
 
         camera.position.set(
-          orbitTarget.x + Math.sin(orbitYaw) * orbitRadius * cosPitch,
+          orbitTarget.x + Math.sin(yaw) * orbitRadius * cosPitch,
           orbitTarget.y + Math.sin(pitch) * orbitRadius,
-          orbitTarget.z + Math.cos(orbitYaw) * orbitRadius * cosPitch,
+          orbitTarget.z + Math.cos(yaw) * orbitRadius * cosPitch,
         );
         camera.lookAt(orbitTarget);
         camera.updateMatrixWorld();
@@ -1005,6 +1027,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerleave', onPointerLeave);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
       renderer.domElement.removeEventListener('pointercancel', onPointerUp);
       renderer.domElement.removeEventListener('wheel', onWheel);
