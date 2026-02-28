@@ -477,7 +477,7 @@ body {
   width: 0;
   height: 0;
   transform-style: preserve-3d;
-  transition: transform 70ms linear;
+  will-change: transform;
 }
 
 .explore-card {
@@ -485,8 +485,8 @@ body {
   margin: 0;
   pointer-events: auto;
   transform-style: preserve-3d;
-  animation: explore-depth var(--ex-duration, 16s) ease-in-out infinite;
-  animation-delay: var(--ex-delay, 0s);
+  transform: translate3d(var(--ex-x, 0px), var(--ex-y, 0px), var(--ex-z, 0px))
+    rotateY(calc(var(--ex-world-rotation-y, 0deg) * -1));
 }
 
 .explore-card-frame {
