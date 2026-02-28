@@ -22,6 +22,13 @@ const electronHandler = {
       ipcRenderer.once(channel, (_event, ...args) => func(...args));
     },
   },
+  folder: {
+    select() {
+      return ipcRenderer.invoke('dialog:select-folder') as Promise<
+        string | null
+      >;
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);
