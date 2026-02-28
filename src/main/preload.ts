@@ -10,6 +10,7 @@ export type ListedImage = {
   ext: string;
   capturedAt?: string | null;
   location?: string | null;
+  country?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 };

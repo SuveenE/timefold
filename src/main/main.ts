@@ -45,6 +45,7 @@ type ListedImage = {
   ext: string;
   capturedAt?: string | null;
   location?: string | null;
+  country?: string | null;
   latitude?: number | null;
   longitude?: number | null;
 };
@@ -91,6 +92,7 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
 type ImageMetadata = {
   capturedAt: string | null;
   location: string | null;
+  country: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -101,6 +103,7 @@ type PersistedImageMetadata = {
   ext: string;
   capturedAt: string | null;
   location: string | null;
+  country: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -145,6 +148,7 @@ const extractImageMetadata = async (
 ): Promise<ImageMetadata> => {
   let capturedAt: string | null = null;
   let location: string | null = null;
+  let country: string | null = null;
   let latitude: number | null = null;
   let longitude: number | null = null;
 
@@ -157,6 +161,8 @@ const extractImageMetadata = async (
         'kMDItemLatitude',
         '-name',
         'kMDItemLongitude',
+        '-name',
+        'kMDItemCountry',
         absolutePath,
       ]);
       const rawCreationDate = parseMdlsValue(
@@ -165,6 +171,7 @@ const extractImageMetadata = async (
       );
       const rawLatitude = parseMdlsValue(stdout, 'kMDItemLatitude');
       const rawLongitude = parseMdlsValue(stdout, 'kMDItemLongitude');
+      const rawCountry = parseMdlsValue(stdout, 'kMDItemCountry');
 
       if (rawCreationDate) {
         capturedAt = toIsoDateIfValid(rawCreationDate) || rawCreationDate;
@@ -179,6 +186,10 @@ const extractImageMetadata = async (
           longitude = nextLongitude;
           location = `${nextLatitude.toFixed(6)}, ${nextLongitude.toFixed(6)}`;
         }
+      }
+
+      if (rawCountry) {
+        country = rawCountry;
       }
     } catch {
       // no-op; use fallback values below
@@ -198,6 +209,7 @@ const extractImageMetadata = async (
   return {
     capturedAt,
     location,
+    country,
     latitude,
     longitude,
   };
@@ -388,6 +400,7 @@ const toImageRecord = async (
     ext: extension,
     capturedAt: metadata.capturedAt,
     location: metadata.location,
+    country: metadata.country,
     latitude: metadata.latitude,
     longitude: metadata.longitude,
   };
@@ -485,6 +498,7 @@ const persistImageMetadata = async (
     ext: image.ext,
     capturedAt: image.capturedAt ?? null,
     location: image.location ?? null,
+    country: image.country ?? null,
     latitude: image.latitude ?? null,
     longitude: image.longitude ?? null,
   }));
