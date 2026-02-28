@@ -206,6 +206,8 @@ body {
   flex: 1;
   overflow: hidden;
   padding: 22px 14px 196px;
+  perspective: 1500px;
+  perspective-origin: 50% 46%;
   cursor: grab;
   touch-action: none;
 }
@@ -218,18 +220,29 @@ body {
   position: absolute;
   inset: 0;
   will-change: transform;
+  transform: translate3d(0, 0, 0);
+  transform-origin: 50% 50%;
+  transform-style: preserve-3d;
+  user-select: none;
 }
 
 .photo-cloud {
   position: absolute;
   inset: 0;
+  transform-style: preserve-3d;
   animation: cloud-sway 18s ease-in-out infinite;
 }
 
 .photo-tile {
   position: absolute;
   margin: 0;
-  pointer-events: auto;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  transform:
+    translate(-50%, -50%)
+    translate3d(var(--sphere-x, 0px), var(--sphere-y, 0px), var(--sphere-z, 0px))
+    rotateX(5deg)
+    rotateY(calc(var(--cloud-rotation-y, 0deg) * -1));
 }
 
 .orbit-track {
@@ -251,6 +264,7 @@ body {
   border-radius: 8px;
   transform: rotate(var(--tile-rotation, 0deg));
   transform-origin: center;
+  backface-visibility: hidden;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: #121212;

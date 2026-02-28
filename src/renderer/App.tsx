@@ -4,7 +4,7 @@ import type {
   PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
 } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MemoryRouter as Router,
   Route,
@@ -16,8 +16,9 @@ import type { ImageSplat, ListedImage } from '../main/preload';
 import './App.css';
 
 type ClusterLayout = {
-  left: number;
-  top: number;
+  sphereX: number;
+  sphereY: number;
+  sphereZ: number;
   width: number;
   rotation: number;
   orbitX: number;
@@ -30,10 +31,12 @@ type ClusterLayout = {
   bobDuration: number;
   opacity: number;
   blur: number;
-  zIndex: number;
 };
 
 type TileStyle = CSSProperties & {
+  '--sphere-x': string;
+  '--sphere-y': string;
+  '--sphere-z': string;
   '--orbit-x': string;
   '--orbit-y': string;
   '--orbit-duration': string;
@@ -121,6 +124,11 @@ type CameraState = {
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
+const LAST_ACTIVE_FOLDER_STORAGE_KEY = 'timefold.lastActiveFolder';
+const CLOUD_DRAG_ROTATION_PER_PIXEL = 0.18;
+const CLOUD_ZOOM_MIN = -520;
+const CLOUD_ZOOM_MAX = 920;
+const CLOUD_ZOOM_PER_WHEEL = 0.72;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -185,29 +193,36 @@ const createClusterLayout = (
   total: number,
 ): ClusterLayout => {
   const random = createRandom(createSeed(`${seedKey}:${index}:${total}`));
-  const angle = random() * Math.PI * 2;
-  const radius = 8 + random() ** 0.75 * 34;
-  const xJitter = (random() - 0.5) * 9;
-  const yJitter = (random() - 0.5) * 11;
+  const safeTotal = Math.max(total, 1);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const unitY = 1 - ((index + 0.5) / safeTotal) * 2;
+  const radial = Math.sqrt(Math.max(0, 1 - unitY * unitY));
+  const theta = goldenAngle * index + (random() - 0.5) * 0.22;
+  const sphereRadius = 312 + (random() - 0.5) * 54;
   const depth = random();
-  const orbitDuration = 14 + random() * 22;
+  const orbitDuration = 13 + random() * 14;
+  const sphereX =
+    Math.cos(theta) * radial * sphereRadius + (random() - 0.5) * 16;
+  const sphereY = unitY * sphereRadius * 1.02 + (random() - 0.5) * 22;
+  const sphereZ =
+    Math.sin(theta) * radial * sphereRadius + (random() - 0.5) * 16;
 
   return {
-    left: clamp(50 + Math.cos(angle) * radius + xJitter, 5, 95),
-    top: clamp(46 + Math.sin(angle) * radius * 0.86 + yJitter, 8, 90),
-    width: 56 + random() * 94 + depth * 35,
-    rotation: 0,
-    orbitX: (random() - 0.5) * (14 + (1 - depth) * 34),
-    orbitY: (random() - 0.5) * (12 + (1 - depth) * 24),
+    sphereX,
+    sphereY,
+    sphereZ,
+    width: 64 + random() * 90 + depth * 38,
+    rotation: (random() - 0.5) * 7,
+    orbitX: (random() - 0.5) * (8 + (1 - depth) * 14),
+    orbitY: (random() - 0.5) * (8 + (1 - depth) * 12),
     orbitDuration,
     orbitDelay: random() * 20,
     counterDuration: orbitDuration,
-    bobX: (random() - 0.5) * 13,
-    bobY: (random() - 0.5) * 16,
-    bobDuration: 4 + random() * 8,
-    opacity: clamp(0.58 + depth * 0.45, 0.46, 1),
-    blur: clamp((1 - depth) * 0.55, 0, 0.7),
-    zIndex: 5 + Math.round(depth * 140),
+    bobX: (random() - 0.5) * 10,
+    bobY: (random() - 0.5) * 14,
+    bobDuration: 4 + random() * 6,
+    opacity: clamp(0.72 + depth * 0.28, 0.7, 1),
+    blur: 0,
   };
 };
 
@@ -254,12 +269,20 @@ function Home({
 }: HomeProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
-  const [cloudOffsetX, setCloudOffsetX] = useState(0);
   const [isCloudDragging, setIsCloudDragging] = useState(false);
-  const cloudDragState = useRef({
-    active: false,
+  const cloudLayerRef = useRef<HTMLDivElement | null>(null);
+  const cloudMotion = useRef({
+    dragging: false,
     pointerId: -1,
     lastX: 0,
+    lastPointerTime: 0,
+    lastFrameTime: 0,
+    position: 0,
+    target: 0,
+    velocity: 0,
+    zoom: 0,
+    zoomTarget: 0,
+    rafId: 0,
   });
   const [failedImagePaths, setFailedImagePaths] = useState<
     Record<string, true>
@@ -371,47 +394,200 @@ function Home({
     });
   }, [renderableImages]);
 
+  const renderCloudState = useCallback(
+    (rotationDeg: number, zoomDepth: number) => {
+      const cloudNode = cloudLayerRef.current;
+
+      if (!cloudNode) {
+        return;
+      }
+
+      const rotationValue = rotationDeg.toFixed(2);
+      const rotation = `${rotationValue}deg`;
+      const zoomValue = `${zoomDepth.toFixed(2)}px`;
+      cloudNode.style.setProperty('--cloud-rotation-y', rotation);
+      cloudNode.style.setProperty('--cloud-zoom-z', zoomValue);
+      cloudNode.style.transform = `translate3d(0, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
+    },
+    [],
+  );
+
+  const runCloudFrame = (timestamp: number) => {
+    const motion = cloudMotion.current;
+
+    if (motion.lastFrameTime === 0) {
+      motion.lastFrameTime = timestamp;
+    }
+
+    const elapsed = clamp(timestamp - motion.lastFrameTime, 8, 34);
+    motion.lastFrameTime = timestamp;
+    const frameFactor = elapsed / 16.667;
+
+    if (!motion.dragging) {
+      motion.target += motion.velocity * elapsed;
+      motion.velocity *= 0.9 ** frameFactor;
+    }
+
+    const zoomFollow = 1 - 0.2 ** frameFactor;
+    motion.zoom += (motion.zoomTarget - motion.zoom) * zoomFollow;
+
+    const follow = 1 - 0.2 ** frameFactor;
+    motion.position += (motion.target - motion.position) * follow;
+
+    if (Math.abs(motion.position) > 1080) {
+      const turns = Math.trunc(motion.position / 360);
+      const normalizedOffset = turns * 360;
+      motion.position -= normalizedOffset;
+      motion.target -= normalizedOffset;
+    }
+
+    renderCloudState(motion.position, motion.zoom);
+
+    const shouldContinue =
+      motion.dragging ||
+      Math.abs(motion.target - motion.position) > 0.04 ||
+      Math.abs(motion.velocity) > 0.002 ||
+      Math.abs(motion.zoomTarget - motion.zoom) > 0.08;
+
+    if (shouldContinue) {
+      motion.rafId = window.requestAnimationFrame(runCloudFrame);
+      return;
+    }
+
+    motion.target = motion.position;
+    motion.zoom = motion.zoomTarget;
+    motion.velocity = 0;
+    motion.lastFrameTime = 0;
+    motion.rafId = 0;
+    renderCloudState(motion.position, motion.zoom);
+  };
+
+  const startCloudAnimation = () => {
+    const motion = cloudMotion.current;
+
+    if (motion.rafId !== 0) {
+      return;
+    }
+
+    motion.rafId = window.requestAnimationFrame(runCloudFrame);
+  };
+
   const beginCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (renderableImages.length === 0) {
       return;
     }
 
-    cloudDragState.current = {
-      active: true,
-      pointerId: event.pointerId,
-      lastX: event.clientX,
-    };
+    const motion = cloudMotion.current;
+    motion.dragging = true;
+    motion.pointerId = event.pointerId;
+    motion.lastX = event.clientX;
+    motion.lastPointerTime = event.timeStamp;
+    motion.velocity = 0;
     setIsCloudDragging(true);
     event.currentTarget.setPointerCapture(event.pointerId);
+    startCloudAnimation();
   };
 
   const updateCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (
-      !cloudDragState.current.active ||
-      cloudDragState.current.pointerId !== event.pointerId
-    ) {
+    const motion = cloudMotion.current;
+
+    if (!motion.dragging || motion.pointerId !== event.pointerId) {
       return;
     }
 
-    const deltaX = event.clientX - cloudDragState.current.lastX;
-    cloudDragState.current.lastX = event.clientX;
+    const deltaX = event.clientX - motion.lastX;
+    const elapsedPointer = clamp(
+      event.timeStamp - motion.lastPointerTime,
+      8,
+      42,
+    );
+    const deltaRotation = deltaX * CLOUD_DRAG_ROTATION_PER_PIXEL;
+    motion.lastX = event.clientX;
+    motion.lastPointerTime = event.timeStamp;
+    motion.target += deltaRotation;
+    motion.velocity = deltaRotation / elapsedPointer;
 
-    setCloudOffsetX((current) => clamp(current + deltaX, -420, 420));
+    startCloudAnimation();
   };
 
   const endCloudDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (cloudDragState.current.pointerId !== event.pointerId) {
+    const motion = cloudMotion.current;
+
+    if (motion.pointerId !== event.pointerId) {
       return;
     }
 
-    cloudDragState.current.active = false;
-    cloudDragState.current.pointerId = -1;
+    motion.dragging = false;
+    motion.pointerId = -1;
     setIsCloudDragging(false);
+    startCloudAnimation();
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
+
+  const handleCloudWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    if (renderableImages.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    const motion = cloudMotion.current;
+    motion.zoomTarget = clamp(
+      motion.zoomTarget - event.deltaY * CLOUD_ZOOM_PER_WHEEL,
+      CLOUD_ZOOM_MIN,
+      CLOUD_ZOOM_MAX,
+    );
+    startCloudAnimation();
+  };
+
+  useEffect(() => {
+    const rafId = window.requestAnimationFrame(() => {
+      const motion = cloudMotion.current;
+      renderCloudState(motion.position, motion.zoom);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [cloudItems, renderCloudState]);
+
+  useEffect(() => {
+    if (renderableImages.length > 0) {
+      return;
+    }
+
+    const motion = cloudMotion.current;
+
+    if (motion.rafId !== 0) {
+      window.cancelAnimationFrame(motion.rafId);
+    }
+
+    motion.dragging = false;
+    motion.pointerId = -1;
+    motion.lastX = 0;
+    motion.lastPointerTime = 0;
+    motion.lastFrameTime = 0;
+    motion.position = 0;
+    motion.target = 0;
+    motion.velocity = 0;
+    motion.zoom = 0;
+    motion.zoomTarget = 0;
+    motion.rafId = 0;
+    renderCloudState(0, 0);
+    setIsCloudDragging(false);
+  }, [renderCloudState, renderableImages.length]);
+
+  useEffect(() => {
+    const motion = cloudMotion.current;
+
+    return () => {
+      if (motion.rafId !== 0) {
+        window.cancelAnimationFrame(motion.rafId);
+      }
+    };
+  }, []);
 
   return (
     <main className="gallery-screen">
@@ -424,21 +600,20 @@ function Home({
         onPointerMove={updateCloudDrag}
         onPointerUp={endCloudDrag}
         onPointerCancel={endCloudDrag}
+        onWheel={handleCloudWheel}
         aria-live="polite"
       >
         {renderableImages.length > 0 && (
-          <div
-            className="cloud-drag-layer"
-            style={{ transform: `translate3d(${cloudOffsetX}px, 0, 0)` }}
-          >
+          <div className="cloud-drag-layer" ref={cloudLayerRef}>
             <div className="photo-cloud">
               {cloudItems.map(({ image, layout }) => {
                 const tileStyle: TileStyle = {
-                  left: `${layout.left}%`,
-                  top: `${layout.top}%`,
+                  left: '50%',
+                  top: '47%',
                   width: `${layout.width}px`,
-                  zIndex: layout.zIndex,
-                  transform: 'translate(-50%, -50%)',
+                  '--sphere-x': `${layout.sphereX}px`,
+                  '--sphere-y': `${layout.sphereY}px`,
+                  '--sphere-z': `${layout.sphereZ}px`,
                   '--orbit-x': `${layout.orbitX}px`,
                   '--orbit-y': `${layout.orbitY}px`,
                   '--orbit-duration': `${layout.orbitDuration}s`,
@@ -1103,6 +1278,8 @@ function AppRoutes() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSettingsHydrated, setIsSettingsHydrated] = useState(false);
+  const hasRestoredFolderRef = useRef(false);
   const [settings, setSettings] = useState<SettingsValues>({
     photoAlbumLocation: '',
     metadataLocation: '',
@@ -1120,6 +1297,7 @@ function AppRoutes() {
     const rawSettings = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
 
     if (!rawSettings) {
+      setIsSettingsHydrated(true);
       return;
     }
 
@@ -1133,12 +1311,18 @@ function AppRoutes() {
       }));
     } catch {
       window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    } finally {
+      setIsSettingsHydrated(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!isSettingsHydrated) {
+      return;
+    }
+
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-  }, [settings]);
+  }, [isSettingsHydrated, settings]);
 
   useEffect(() => {
     splatLookupCache.current = {};
@@ -1155,25 +1339,58 @@ function AppRoutes() {
     setIsLoading(true);
     setErrorMessage(null);
 
-    try {
-      const folderImages = await window.electron.folder.listImages(
-        folderPath,
-        metadataFolderPath,
-      );
-      setImages(folderImages);
+      try {
+        const folderImages = await window.electron.folder.listImages(
+          folderPath,
+          metadataFolderPath,
+        );
+        setImages(folderImages);
 
-      if (folderImages.length === 0) {
-        setErrorMessage('No supported image files were found in this folder.');
+        if (folderImages.length === 0) {
+          setErrorMessage(
+            'No supported image files were found in this folder.',
+          );
+        }
+      } catch {
+        setImages([]);
+        setErrorMessage(
+          'Unable to read this folder. Please try another location.',
+        );
+      } finally {
+        setIsLoading(false);
       }
-    } catch {
-      setImages([]);
-      setErrorMessage(
-        'Unable to read this folder. Please try another location.',
-      );
-    } finally {
-      setIsLoading(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isSettingsHydrated || hasRestoredFolderRef.current) {
+      return;
     }
-  };
+
+    hasRestoredFolderRef.current = true;
+    const lastActiveFolder =
+      window.localStorage.getItem(LAST_ACTIVE_FOLDER_STORAGE_KEY)?.trim() || '';
+    const configuredAlbumFolder = settings.photoAlbumLocation.trim();
+    const folderToRestore = lastActiveFolder || configuredAlbumFolder;
+
+    if (!folderToRestore) {
+      return;
+    }
+
+    setActiveFolder(folderToRestore);
+    const effectiveMetadataLocation =
+      settings.metadataLocation.trim() ||
+      buildMetadataLocation(folderToRestore);
+    loadFolderImages(folderToRestore, effectiveMetadataLocation).catch(
+      () => undefined,
+    );
+  }, [
+    isSettingsHydrated,
+    loadFolderImages,
+    settings.metadataLocation,
+    settings.photoAlbumLocation,
+  ]);
 
   const handleFolderSelect = async () => {
     setIsSelecting(true);
@@ -1186,6 +1403,10 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
+      window.localStorage.setItem(
+        LAST_ACTIVE_FOLDER_STORAGE_KEY,
+        selectedFolder,
+      );
       const shouldSeedAlbumLocation = settings.photoAlbumLocation.trim() === '';
       const nextSettings = shouldSeedAlbumLocation
         ? {
