@@ -13,11 +13,6 @@ import {
 import type { ListedImage } from '../main/preload';
 import './App.css';
 
-type RecentFolder = {
-  name: string;
-  path: string;
-};
-
 type ClusterLayout = {
   left: number;
   top: number;
@@ -78,14 +73,12 @@ type ExploreCardStyle = CSSProperties & {
 
 type HomeProps = {
   activeFolder: string | null;
-  recentFolders: RecentFolder[];
   images: ListedImage[];
   isSelecting: boolean;
   isLoading: boolean;
   errorMessage: string | null;
   onSelectFolder: () => Promise<void>;
   onReload: () => Promise<void>;
-  onRecentFolder: (folderPath: string) => Promise<void>;
 };
 
 type ExploreProps = {
@@ -102,7 +95,6 @@ type CameraState = {
 
 const MAX_RENDERED_IMAGES = 220;
 const MAX_FILTER_CHIPS = 6;
-const MAX_RECENT_FOLDERS = 4;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -209,14 +201,12 @@ const createExploreLayout = (
 
 function Home({
   activeFolder,
-  recentFolders,
   images,
   isSelecting,
   isLoading,
   errorMessage,
   onSelectFolder,
   onReload,
-  onRecentFolder,
 }: HomeProps) {
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -449,38 +439,40 @@ function Home({
           </div>
         )}
 
-        <div className="chip-row">
-          {filterChips.map((chip) => (
-            <button
-              key={chip.key}
-              type="button"
-              className={`chip ${activeFilter === chip.key ? 'active' : ''}`}
-              onClick={() => setActiveFilter(chip.key)}
-              disabled={chip.count === 0}
-            >
-              {chip.label}
-              <small>{chip.count}</small>
-            </button>
-          ))}
-        </div>
+        <div className="dock-controls-row">
+          <div className="chip-row">
+            {filterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                className={`chip ${activeFilter === chip.key ? 'active' : ''}`}
+                onClick={() => setActiveFilter(chip.key)}
+                disabled={chip.count === 0}
+              >
+                {chip.label}
+                <small>{chip.count}</small>
+              </button>
+            ))}
+          </div>
 
-        <div className="dock-actions">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={onReload}
-            disabled={!activeFolder || isLoading}
-          >
-            reload
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={onSelectFolder}
-            disabled={isSelecting}
-          >
-            {isSelecting ? 'opening...' : 'choose folder'}
-          </button>
+          <div className="dock-actions">
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={onReload}
+              disabled={!activeFolder || isLoading}
+            >
+              reload
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={onSelectFolder}
+              disabled={isSelecting}
+            >
+              {isSelecting ? 'opening...' : 'choose folder'}
+            </button>
+          </div>
         </div>
 
         <section className="dock-meta">
@@ -489,6 +481,9 @@ function Home({
           </p>
           <p className="folder-path">
             {activeFolder || 'Select a local folder containing image files'}
+          </p>
+          <p className="folder-note">
+            App data related to this folder is saved in the same location.
           </p>
           {hiddenImageCount > 0 && (
             <p className="hint">
@@ -502,21 +497,6 @@ function Home({
             </p>
           )}
         </section>
-
-        {recentFolders.length > 0 && (
-          <div className="recent-row">
-            {recentFolders.map((folder) => (
-              <button
-                key={folder.path}
-                type="button"
-                className="recent-folder"
-                onClick={() => onRecentFolder(folder.path)}
-              >
-                {folder.name}
-              </button>
-            ))}
-          </div>
-        )}
       </footer>
     </main>
   );
@@ -691,7 +671,6 @@ function Explore({ images }: ExploreProps) {
 
 function AppRoutes() {
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
-  const [recentFolders, setRecentFolders] = useState<RecentFolder[]>([]);
   const [images, setImages] = useState<ListedImage[]>([]);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -729,26 +708,10 @@ function AppRoutes() {
       }
 
       setActiveFolder(selectedFolder);
-      setRecentFolders((previous) => {
-        const updated = previous.filter(
-          (folder) => folder.path !== selectedFolder,
-        );
-        updated.unshift({
-          name: getFolderName(selectedFolder),
-          path: selectedFolder,
-        });
-        return updated.slice(0, MAX_RECENT_FOLDERS);
-      });
-
       await loadFolderImages(selectedFolder);
     } finally {
       setIsSelecting(false);
     }
-  };
-
-  const handleRecentFolder = async (folderPath: string) => {
-    setActiveFolder(folderPath);
-    await loadFolderImages(folderPath);
   };
 
   const handleReload = async () => {
@@ -766,14 +729,12 @@ function AppRoutes() {
         element={
           <Home
             activeFolder={activeFolder}
-            recentFolders={recentFolders}
             images={images}
             isSelecting={isSelecting}
             isLoading={isLoading}
             errorMessage={errorMessage}
             onSelectFolder={handleFolderSelect}
             onReload={handleReload}
-            onRecentFolder={handleRecentFolder}
           />
         }
       />

@@ -74,6 +74,8 @@ body {
   align-items: center;
   gap: 16px;
   min-width: 0;
+}
+
 .library-header {
   position: relative;
   z-index: 20;
@@ -379,6 +381,13 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.dock-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -433,8 +442,7 @@ body {
 }
 
 .ghost-button,
-.primary-button,
-.recent-folder {
+.primary-button {
   border: 1px solid rgba(33, 33, 33, 0.24);
   border-radius: 999px;
   padding: 9px 14px;
@@ -472,8 +480,7 @@ body {
 }
 
 .ghost-button:hover:not(:disabled),
-.primary-button:hover:not(:disabled),
-.recent-folder:hover {
+.primary-button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 9px 16px rgba(0, 0, 0, 0.17);
 }
@@ -503,22 +510,16 @@ body {
   word-break: break-all;
 }
 
+.folder-note {
+  margin: 1px 0 0;
+  font-size: 0.78rem;
+  color: #616161;
+}
+
 .hint {
   margin: 2px 0 0;
   font-size: 0.77rem;
   color: #5f5f5f;
-}
-
-.recent-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.recent-folder {
-  background: rgba(255, 255, 255, 0.26);
-  color: #262626;
-  padding-inline: 12px;
 }
 
 @keyframes orbit-around {
@@ -623,6 +624,8 @@ body {
 
   .dock-actions {
     width: 100%;
+  }
+
   .library-header {
     grid-template-columns: auto 1fr;
     padding: 14px 16px;
@@ -684,6 +687,11 @@ body {
 
   .cloud-viewport {
     padding-bottom: 240px;
+  }
+
+  .dock-controls-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .dock-actions {
