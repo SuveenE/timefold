@@ -119,9 +119,9 @@ const MAX_FILTER_CHIPS = 6;
 const SETTINGS_STORAGE_KEY = 'timefold.settings';
 const LAST_ACTIVE_FOLDER_STORAGE_KEY = 'timefold.lastActiveFolder';
 const CLOUD_DRAG_ROTATION_PER_PIXEL = 0.18;
-const CLOUD_ZOOM_MIN = 0;
-const CLOUD_ZOOM_MAX = 760;
-const CLOUD_ZOOM_PER_WHEEL = 0.65;
+const CLOUD_ZOOM_MIN = -520;
+const CLOUD_ZOOM_MAX = 920;
+const CLOUD_ZOOM_PER_WHEEL = 0.72;
 
 const INITIAL_CAMERA: CameraState = {
   x: 0,
@@ -380,7 +380,7 @@ function Home({
       const zoomValue = `${zoomDepth.toFixed(2)}px`;
       cloudNode.style.setProperty('--cloud-rotation-y', rotation);
       cloudNode.style.setProperty('--cloud-zoom-z', zoomValue);
-      cloudNode.style.transform = `translate3d(0, 0, 0) rotateX(-5deg) rotateY(${rotation})`;
+      cloudNode.style.transform = `translate3d(0, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
     },
     [],
   );

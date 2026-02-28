@@ -240,11 +240,7 @@ body {
   transform-style: preserve-3d;
   transform:
     translate(-50%, -50%)
-    translate3d(
-      var(--sphere-x, 0px),
-      var(--sphere-y, 0px),
-      calc(var(--sphere-z, 0px) - var(--cloud-zoom-z, 0px))
-    )
+    translate3d(var(--sphere-x, 0px), var(--sphere-y, 0px), var(--sphere-z, 0px))
     rotateX(5deg)
     rotateY(calc(var(--cloud-rotation-y, 0deg) * -1));
 }
