@@ -18,7 +18,8 @@ import {
   createExploreLayout,
 } from '../utils/gallery';
 
-const LOCATION_GLOBE_RADIUS = 320;
+const LOCATION_MAP_WIDTH = 980;
+const LOCATION_MAP_HEIGHT = 510;
 const TIME_GLOBE_RADIUS = 300;
 const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
 const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
@@ -131,6 +132,15 @@ const projectCoordinatesToGlobe = (
   };
 };
 
+const projectCoordinatesToWorldMap = (latitude: number, longitude: number) => {
+  const halfWidth = LOCATION_MAP_WIDTH * 0.5;
+  const halfHeight = LOCATION_MAP_HEIGHT * 0.5;
+  const x = (longitude / 180) * halfWidth;
+  const y = -(latitude / 90) * halfHeight;
+
+  return { x, y };
+};
+
 const buildYearValue = (capturedAt?: string | null): number | null => {
   if (!capturedAt) {
     return null;
@@ -221,16 +231,11 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         return current;
       }
 
-      const point = projectCoordinatesToGlobe(
+      const point = projectCoordinatesToWorldMap(
         coordinates.latitude,
         coordinates.longitude,
-        LOCATION_GLOBE_RADIUS,
       );
-      const depthHint = clamp(
-        (point.z + LOCATION_GLOBE_RADIUS) / (LOCATION_GLOBE_RADIUS * 2),
-        0,
-        1,
-      );
+      const depthHint = clamp((coordinates.latitude + 90) / 180, 0, 1);
       const variation = (index % 7) / 7;
 
       return [
@@ -240,7 +245,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           layout: {
             x: point.x,
             y: point.y,
-            z: point.z,
+            z: -50 + depthHint * 80 + variation * 18,
             width: 68 + depthHint * 26 + variation * 8,
             rotation: (variation - 0.5) * 4,
             opacity: clamp(0.56 + depthHint * 0.42, 0.45, 1),
@@ -371,6 +376,11 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
     return exploreItems;
   }, [exploreItems, locationItems, mode, timeItems]);
   const imagesMissingCoordinates = images.length - locationItems.length;
+  const imagesWithCountry = useMemo(() => {
+    return locationItems.filter((item) => {
+      return Boolean(item.image.country?.trim());
+    }).length;
+  }, [locationItems]);
   const visibleTimeClusters = timeClusters.slice(0, 8);
   const hiddenTimeClusterCount = Math.max(timeClusters.length - 8, 0);
   const yearRangeLabel = useMemo(() => {
@@ -531,7 +541,8 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
         return;
       }
 
-      const rotation = `${rotationDeg.toFixed(2)}deg`;
+      const effectiveRotationDeg = mode === 'location' ? 0 : rotationDeg;
+      const rotation = `${effectiveRotationDeg.toFixed(2)}deg`;
       const finalZoom = zoomDepth + exploreFrame.fitZoom;
       const zoomValue = `${finalZoom.toFixed(2)}px`;
       const offsetXValue = `${exploreFrame.offsetX.toFixed(2)}px`;
@@ -539,7 +550,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
       worldNode.style.setProperty('--ex-world-zoom-z', zoomValue);
       worldNode.style.transform = `translate3d(${offsetXValue}, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
     },
-    [exploreFrame.fitZoom, exploreFrame.offsetX],
+    [exploreFrame.fitZoom, exploreFrame.offsetX, mode],
   );
 
   const exploreMotion = useGlobeMotion({
@@ -609,7 +620,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             className={`explore-sidebar-button ${
               mode === 'location' ? 'active' : ''
             }`}
-            aria-label="Show location globe"
+            aria-label="Show location map"
             onClick={() =>
               setMode((current) =>
                 current === 'location' ? 'free' : 'location',
@@ -634,7 +645,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
           <div className="explore-scene">
             <div className="explore-world" ref={exploreWorldRef}>
               {mode === 'location' ? (
-                <div className="explore-location-globe" aria-hidden="true" />
+                <div className="explore-location-map" aria-hidden="true" />
               ) : null}
               {mode === 'time' ? (
                 <div className="explore-time-stars" aria-hidden="true" />
@@ -703,6 +714,11 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                         draggable={false}
                       />
                     </button>
+                    {mode === 'location' ? (
+                      <figcaption className="explore-location-country">
+                        {image.country?.trim() || 'Unknown country'}
+                      </figcaption>
+                    ) : null}
                   </figure>
                 );
               })}
@@ -721,6 +737,9 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
                   {imagesMissingCoordinates > 0
                     ? `${imagesMissingCoordinates} without latitude/longitude metadata`
                     : 'All photos include latitude/longitude metadata'}
+                </p>
+                <p className="explore-location-meta-copy">
+                  {imagesWithCountry} with country metadata
                 </p>
               </div>
             ) : null}
@@ -764,7 +783,7 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
             <p className="status-title">No geotagged images found</p>
             <p className="status-copy">
               Load photos with latitude and longitude metadata to map them on
-              the globe.
+              the world map.
             </p>
           </div>
         ) : null}
