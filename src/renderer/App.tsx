@@ -363,12 +363,42 @@ function Home({
   ]);
 
   const cloudItems = useMemo(() => {
-    return renderableImages.map((image, index) => {
+    const items = renderableImages.map((image, index) => {
       return {
         image,
         layout: createClusterLayout(image.path, index, renderableImages.length),
       };
     });
+
+    if (items.length === 0) {
+      return items;
+    }
+
+    const centroid = items.reduce(
+      (acc, item) => {
+        return {
+          x: acc.x + item.layout.sphereX,
+          y: acc.y + item.layout.sphereY,
+          z: acc.z + item.layout.sphereZ,
+        };
+      },
+      { x: 0, y: 0, z: 0 },
+    );
+
+    const invLength = 1 / items.length;
+    const centerX = centroid.x * invLength;
+    const centerY = centroid.y * invLength;
+    const centerZ = centroid.z * invLength;
+
+    return items.map((item) => ({
+      ...item,
+      layout: {
+        ...item.layout,
+        sphereX: item.layout.sphereX - centerX,
+        sphereY: item.layout.sphereY - centerY,
+        sphereZ: item.layout.sphereZ - centerZ,
+      },
+    }));
   }, [renderableImages]);
 
   const renderCloudState = useCallback(
@@ -742,12 +772,42 @@ function Explore({ images, onImageSelect }: ExploreProps) {
   });
 
   const exploreItems = useMemo(() => {
-    return images.map((image, index) => {
+    const items = images.map((image, index) => {
       return {
         image,
         layout: createExploreLayout(image.path, index, images.length),
       };
     });
+
+    if (items.length === 0) {
+      return items;
+    }
+
+    const centroid = items.reduce(
+      (acc, item) => {
+        return {
+          x: acc.x + item.layout.x,
+          y: acc.y + item.layout.y,
+          z: acc.z + item.layout.z,
+        };
+      },
+      { x: 0, y: 0, z: 0 },
+    );
+
+    const invLength = 1 / items.length;
+    const centerX = centroid.x * invLength;
+    const centerY = centroid.y * invLength;
+    const centerZ = centroid.z * invLength;
+
+    return items.map((item) => ({
+      ...item,
+      layout: {
+        ...item.layout,
+        x: item.layout.x - centerX,
+        y: item.layout.y - centerY,
+        z: item.layout.z - centerZ,
+      },
+    }));
   }, [images]);
 
   const locationClusters = useMemo(() => {
