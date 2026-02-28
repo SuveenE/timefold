@@ -843,6 +843,10 @@ body {
   transition: transform 120ms ease, background-color 120ms ease;
 }
 
+.chip-icon {
+  flex-shrink: 0;
+}
+
 .chip small {
   opacity: 0.68;
   font-size: 0.78rem;
@@ -877,6 +881,9 @@ body {
   font: inherit;
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .ghost-button {
@@ -889,6 +896,7 @@ body {
   padding-inline: clamp(18px, 2.2vw, 26px);
   font-size: 1.02rem;
   letter-spacing: 0.015em;
+  justify-content: center;
 }
 
 .explore-button.highlighted {
@@ -905,6 +913,10 @@ body {
   background: #202020;
   color: #f6f6f6;
   border-color: rgba(16, 16, 16, 0.9);
+}
+
+.button-icon {
+  flex-shrink: 0;
 }
 
 .ghost-button:hover:not(:disabled),

@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Compass, Folder, Image as ImageIcon, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import useGlobeMotion from '../hooks/useGlobeMotion';
 import type { HomeProps } from '../types/gallery';
@@ -8,7 +9,6 @@ import {
   CLOUD_ZOOM_MAX,
   CLOUD_ZOOM_MIN,
   CLOUD_ZOOM_PER_WHEEL,
-  MAX_FILTER_CHIPS,
   MAX_RENDERED_IMAGES,
   createClusterLayout,
 } from '../utils/gallery';
@@ -55,24 +55,15 @@ export default function Home({
     setLoadedImagePaths({});
   }, [images]);
 
-  const extensionCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-
-    images.forEach((image) => {
-      counts.set(image.ext, (counts.get(image.ext) || 0) + 1);
-    });
-
-    return [...counts.entries()].sort((first, second) => second[1] - first[1]);
-  }, [images]);
-
   const filterChips = useMemo(() => {
     return [
-      { key: 'all', label: 'all', count: images.length },
-      ...extensionCounts.slice(0, MAX_FILTER_CHIPS).map(([ext, count]) => {
-        return { key: ext, label: ext, count };
-      }),
+      {
+        key: 'all',
+        label: `${images.length} images loaded`,
+        count: images.length,
+      },
     ];
-  }, [extensionCounts, images.length]);
+  }, [images.length]);
 
   useEffect(() => {
     const isCurrentFilterValid = filterChips.some(
@@ -101,6 +92,36 @@ export default function Home({
   }, [failedImagePaths, filteredImages]);
 
   const hasLoadedImages = images.length > 0 && !isLoading;
+
+  const markImageLoaded = useCallback((path: string) => {
+    setLoadedImagePaths((current) => {
+      if (current[path]) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [path]: true,
+      };
+    });
+  }, []);
+
+  const markImageFailed = useCallback(
+    (path: string) => {
+      setFailedImagePaths((current) => {
+        if (current[path]) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [path]: true,
+        };
+      });
+      markImageLoaded(path);
+    },
+    [markImageLoaded],
+  );
 
   const statusTitle = useMemo(() => {
     if (isLoading) {
@@ -292,40 +313,18 @@ export default function Home({
                               alt=""
                               loading="lazy"
                               draggable={false}
-                              onLoad={() => {
-                                setLoadedImagePaths((current) => {
-                                  if (current[image.path]) {
-                                    return current;
-                                  }
+                              ref={(node) => {
+                                if (!node) {
+                                  return;
+                                }
 
-                                  return {
-                                    ...current,
-                                    [image.path]: true,
-                                  };
-                                });
+                                // Some cached file:// images can be complete before onLoad fires.
+                                if (node.complete && node.naturalWidth > 0) {
+                                  markImageLoaded(image.path);
+                                }
                               }}
-                              onError={() => {
-                                setFailedImagePaths((current) => {
-                                  if (current[image.path]) {
-                                    return current;
-                                  }
-
-                                  return {
-                                    ...current,
-                                    [image.path]: true,
-                                  };
-                                });
-                                setLoadedImagePaths((current) => {
-                                  if (current[image.path]) {
-                                    return current;
-                                  }
-
-                                  return {
-                                    ...current,
-                                    [image.path]: true,
-                                  };
-                                });
-                              }}
+                              onLoad={() => markImageLoaded(image.path)}
+                              onError={() => markImageFailed(image.path)}
                             />
                           </button>
                         </div>
@@ -359,6 +358,7 @@ export default function Home({
               onClick={() => navigate('/explore')}
               disabled={isLoading}
             >
+              <Compass size={15} className="button-icon" />
               explore
             </button>
           </div>
@@ -374,8 +374,11 @@ export default function Home({
                 onClick={() => setActiveFilter(chip.key)}
                 disabled={chip.count === 0}
               >
+                {chip.key === 'all' && (
+                  <ImageIcon size={15} className="chip-icon" />
+                )}
                 {chip.label}
-                <small>{chip.count}</small>
+                {chip.key !== 'all' && <small>{chip.count}</small>}
               </button>
             ))}
           </div>
@@ -387,6 +390,7 @@ export default function Home({
               onClick={onReload}
               disabled={!activeFolder || isLoading}
             >
+              <RefreshCw size={15} className="button-icon" />
               reload
             </button>
             <button
@@ -395,6 +399,7 @@ export default function Home({
               onClick={onSelectFolder}
               disabled={isSelecting}
             >
+              <Folder size={15} className="button-icon" />
               {isSelecting ? 'opening...' : 'choose folder'}
             </button>
           </div>
