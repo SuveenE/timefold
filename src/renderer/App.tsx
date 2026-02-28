@@ -12,6 +12,8 @@ import {
   useNavigate,
 } from 'react-router-dom';
 import type { ListedImage } from '../main/preload';
+import homeIcon from '../../assets/icons/home.png';
+import settingsIcon from '../../assets/icons/settings.png';
 import './App.css';
 
 type ClusterLayout = {
@@ -546,25 +548,6 @@ function Explore({ images }: ExploreProps) {
     });
   };
 
-  const centerView = () => {
-    setCamera((current) => ({
-      ...current,
-      x: 0,
-      y: 0,
-    }));
-  };
-
-  const resetView = () => {
-    setCamera(INITIAL_CAMERA);
-  };
-
-  const zoomBy = (delta: number) => {
-    setCamera((current) => ({
-      ...current,
-      zoom: clamp(current.zoom + delta, -900, 260),
-    }));
-  };
-
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -600,37 +583,18 @@ function Explore({ images }: ExploreProps) {
           <button
             type="button"
             className="explore-sidebar-button"
+            aria-label="Go to home"
             onClick={() => navigate('/')}
           >
-            home
+            <img src={homeIcon} alt="" aria-hidden="true" />
           </button>
           <button
             type="button"
             className="explore-sidebar-button"
-            onClick={centerView}
+            aria-label="Go to settings"
+            onClick={() => navigate('/settings')}
           >
-            center
-          </button>
-          <button
-            type="button"
-            className="explore-sidebar-button"
-            onClick={resetView}
-          >
-            reset
-          </button>
-          <button
-            type="button"
-            className="explore-sidebar-button"
-            onClick={() => zoomBy(90)}
-          >
-            zoom +
-          </button>
-          <button
-            type="button"
-            className="explore-sidebar-button"
-            onClick={() => zoomBy(-90)}
-          >
-            zoom -
+            <img src={settingsIcon} alt="" aria-hidden="true" />
           </button>
         </aside>
 

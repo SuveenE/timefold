@@ -290,7 +290,7 @@ body {
   top: 50%;
   transform: translateY(-50%);
   z-index: 40;
-  width: min(148px, calc(100vw - 70px));
+  width: 72px;
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -305,25 +305,32 @@ body {
 
 .explore-sidebar-button {
   border: 1px solid rgba(232, 232, 232, 0.2);
-  border-radius: 999px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.06);
   color: #f2f2f2;
   font: inherit;
-  font-size: 0.84rem;
-  letter-spacing: 0.01em;
-  padding: 8px 10px;
+  padding: 10px;
+  min-height: 52px;
   cursor: pointer;
   transition: transform 120ms ease, background-color 120ms ease;
+  display: grid;
+  place-items: center;
 }
 
 .explore-sidebar-button:hover {
-  transform: translateX(1px);
+  transform: translateY(-1px);
   background: rgba(255, 255, 255, 0.14);
 }
 
 .explore-sidebar-button:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.46);
   outline-offset: 2px;
+}
+
+.explore-sidebar-button img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
 }
 
 .explore-scene {
@@ -443,7 +450,7 @@ body {
 
 .chip {
   border: 1px solid rgba(32, 32, 32, 0.16);
-  border-radius: 999px;
+  border-radius: 16px;
   padding: 7px 12px;
   background: var(--chip-bg);
   color: #323232;
@@ -486,7 +493,7 @@ body {
 .ghost-button,
 .primary-button {
   border: 1px solid rgba(33, 33, 33, 0.24);
-  border-radius: 999px;
+  border-radius: 16px;
   padding: 9px 14px;
   font: inherit;
   cursor: pointer;
@@ -783,7 +790,7 @@ body {
 
   .explore-sidebar {
     left: 12px;
-    width: 138px;
+    width: 66px;
     padding: 8px;
     gap: 7px;
   }
@@ -849,12 +856,12 @@ body {
     bottom: 12px;
     left: 50%;
     transform: translateX(-50%);
-    width: min(480px, calc(100% - 22px));
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: min(220px, calc(100% - 22px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .explore-sidebar-button {
-    font-size: 0.8rem;
-    padding: 8px 6px;
+    min-height: 46px;
+    padding: 8px;
   }
 }
