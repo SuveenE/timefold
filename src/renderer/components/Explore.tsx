@@ -21,6 +21,8 @@ import {
 const LOCATION_MAP_WIDTH = 980;
 const LOCATION_MAP_HEIGHT = 510;
 const TIME_GLOBE_RADIUS = 300;
+const EXPLORE_WORLD_BASE_OFFSET_X = -24;
+const EXPLORE_WORLD_BASE_OFFSET_Y = -18;
 const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
 const LOCATION_TEXT_PATTERN = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
 
@@ -565,10 +567,13 @@ export default function Explore({ images, onImageSelect }: ExploreProps) {
       const rotation = `${effectiveRotationDeg.toFixed(2)}deg`;
       const finalZoom = zoomDepth + exploreFrame.fitZoom;
       const zoomValue = `${finalZoom.toFixed(2)}px`;
-      const offsetXValue = `${exploreFrame.offsetX.toFixed(2)}px`;
+      const offsetXValue = `${(
+        exploreFrame.offsetX + EXPLORE_WORLD_BASE_OFFSET_X
+      ).toFixed(2)}px`;
+      const offsetYValue = `${EXPLORE_WORLD_BASE_OFFSET_Y.toFixed(2)}px`;
       worldNode.style.setProperty('--ex-world-rotation-y', rotation);
       worldNode.style.setProperty('--ex-world-zoom-z', zoomValue);
-      worldNode.style.transform = `translate3d(${offsetXValue}, 0, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
+      worldNode.style.transform = `translate3d(${offsetXValue}, ${offsetYValue}, ${zoomValue}) rotateX(-5deg) rotateY(${rotation})`;
     },
     [exploreFrame.fitZoom, exploreFrame.offsetX, mode],
   );
