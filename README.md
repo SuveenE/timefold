@@ -1,29 +1,34 @@
 # Timefold
 
+[![GitHub stars](https://img.shields.io/github/stars/SuveenE/timefold?style=social)](https://github.com/SuveenE/timefold/stargazers)
+![License](https://img.shields.io/github/license/SuveenE/timefold)
+[![Twitter Follow](https://img.shields.io/twitter/follow/SuveenE?style=social)](https://x.com/SuveenE)
+
 <img src="assets/icon.png" alt="Timefold logo" width="120" />
 
-Timefold is a local-first desktop photo explorer for browsing personal image libraries in an immersive 3D interface. It lets you load images from your own folders, navigate memories in spatial clusters, explore by time or location, and preview matching Gaussian splat reconstructions when available.
+A local-first desktop photo explorer that lets you browse personal image libraries in an immersive 3D interface. Load images from your own folders, navigate memories as spatial clusters, explore by time or location, and step into AI-generated 3D worlds powered by World Labs.
+
+> **Note:** Timefold is not officially distributed yet. To try it, clone the repo and run locally.
 
 ## Features
 
-- **Image Cloud Feature**: Loads your local album into a floating 3D collage you can scan and open quickly.
-- **Explore Modes**: Switch between free exploration, location-based grouping, and time-based grouping.
-- **Gaussian Splats Feature**: Opens interactive `.ply` previews matched to selected images.
+- **3D Image Cloud** — Your local album rendered as a floating spatial collage you can orbit, zoom, and click through.
+- **Explore Modes** — Switch between free exploration, location-based grouping, and time-based grouping.
+- **Gaussian Splat Previews** — Interactive `.ply` and `.spz` splat renders matched to individual images.
+- **AI-Generated 3D Worlds** — Turn any photo into a navigable 3D world using the [World Labs Marble API](https://marble.worldlabs.ai/) (`https://api.worldlabs.ai/marble/v1`). The API returns `.spz` Gaussian splat files that Timefold renders inline, and you can also explore the world directly on [Marble](https://marble.worldlabs.ai/).
 
-## Image Cloud Feature
-
-The image cloud experience is shown below:
+## Image Cloud
 
 ![Timefold image cloud feature](assets/home.png)
 
-## Gaussian Splats Feature
+## Gaussian Splats
 
 Timefold supports per-image 3D Gaussian splat previews in the image details modal.
 
-- For each image, the app looks for a matching `.ply` file in `splats/` inside the selected album folder.
-- File matching uses the image base name. Example: `IMG_0123.JPG` maps to `splats/IMG_0123.ply`.
-- When a match is found, Timefold renders an interactive 3D preview and shows a short file/header preview.
-- If no matching `.ply` exists, the modal shows a clear "No matching file found" message.
+- For each image, the app looks for a matching splat file in `splats/` inside the selected album folder.
+- File matching uses the image base name — e.g. `IMG_0123.JPG` maps to `splats/IMG_0123.ply`.
+- When a match is found, Timefold renders an interactive 3D preview with file and header metadata.
+- If no match exists, the modal shows a clear "No matching file found" message.
 
 ### Example Album Structure
 
@@ -38,11 +43,12 @@ MyAlbum/
 
 ## Tech Stack
 
-- Electron for cross-platform desktop runtime
-- React 19 for UI rendering
-- TypeScript for type-safe application code
-- Webpack for development and production bundling
-- Jest + ESLint for tests and static analysis
+- **Electron** — Cross-platform desktop runtime
+- **React 19** — UI rendering
+- **TypeScript** — Type-safe application code
+- **Three.js** — 3D rendering and Gaussian splat visualization
+- **Webpack** — Development and production bundling
+- **Jest + ESLint** — Tests and static analysis
 
 ## Prerequisites
 
@@ -51,28 +57,26 @@ MyAlbum/
 
 ## Run Locally
 
-Install dependencies and start the app in development mode:
-
 ```bash
 npm install
 npm start
 ```
 
-This starts the webpack development servers and opens the Electron window.
+This starts the Webpack dev servers and opens the Electron window.
 
 ## Quality Checks
-
-Run linting and tests:
 
 ```bash
 npm run lint
 npm test -- --runInBand
 ```
 
-## Build Production Bundles
-
-Create optimized production artifacts:
+## Build for Production
 
 ```bash
 npm run build
 ```
+
+## License
+
+[MIT](LICENSE)
