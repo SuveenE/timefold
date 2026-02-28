@@ -1,7 +1,6 @@
-# Timefold Electron React App
+# Timefold
 
-Simple desktop starter app built from the
-[Electron React Boilerplate](https://github.com/electron-react-boilerplate/electron-react-boilerplate).
+Simple desktop app built with Electron, React, and TypeScript.
 
 ## Prerequisites
 

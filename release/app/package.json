@@ -1,12 +1,12 @@
 {
-  "name": "electron-react-boilerplate",
+  "name": "timefold",
   "version": "4.6.0",
-  "description": "A foundation for scalable desktop apps",
+  "description": "Timefold desktop app",
   "license": "MIT",
   "author": {
-    "name": "Electron React Boilerplate Maintainers",
-    "email": "electronreactboilerplate@gmail.com",
-    "url": "https://github.com/electron-react-boilerplate"
+    "name": "Timefold Team",
+    "email": "team@timefold.app",
+    "url": "https://github.com/timefold"
   },
   "main": "./dist/main/main.js",
   "scripts": {
