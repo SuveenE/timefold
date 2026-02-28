@@ -155,17 +155,18 @@ const createClusterLayout = (
   const xJitter = (random() - 0.5) * 9;
   const yJitter = (random() - 0.5) * 11;
   const depth = random();
+  const orbitDuration = 14 + random() * 22;
 
   return {
     left: clamp(50 + Math.cos(angle) * radius + xJitter, 5, 95),
     top: clamp(46 + Math.sin(angle) * radius * 0.86 + yJitter, 8, 90),
     width: 56 + random() * 94 + depth * 35,
-    rotation: (random() - 0.5) * 32,
+    rotation: 0,
     orbitX: (random() - 0.5) * (14 + (1 - depth) * 34),
     orbitY: (random() - 0.5) * (12 + (1 - depth) * 24),
-    orbitDuration: 14 + random() * 22,
+    orbitDuration,
     orbitDelay: random() * 20,
-    counterDuration: 16 + random() * 20,
+    counterDuration: orbitDuration,
     bobX: (random() - 0.5) * 13,
     bobY: (random() - 0.5) * 16,
     bobDuration: 4 + random() * 8,
@@ -197,8 +198,8 @@ const createExploreLayout = (
     zStart: depthBase - depthTravel * 0.5,
     zEnd: depthBase + depthTravel * 0.5,
     width: 92 + random() * 132 + perspectiveHint * 42,
-    rotation: (random() - 0.5) * 32,
-    spin: (random() - 0.5) * 18,
+    rotation: 0,
+    spin: 0,
     duration: 14 + random() * 18,
     delay: random() * 20,
     opacity: clamp(0.52 + perspectiveHint * 0.48, 0.44, 1),
@@ -277,6 +278,7 @@ function Home({
     filteredPool.length - filteredImages.length,
   );
   const failedPreviewCount = filteredImages.length - renderableImages.length;
+  const hasLoadedImages = images.length > 0 && !isLoading;
 
   const statusTitle = useMemo(() => {
     if (isLoading) {
@@ -432,6 +434,21 @@ function Home({
       </section>
 
       <footer className="control-dock">
+        {images.length > 0 && (
+          <div className="dock-explore-row">
+            <button
+              type="button"
+              className={`ghost-button explore-button ${
+                hasLoadedImages ? 'highlighted' : ''
+              }`}
+              onClick={() => navigate('/explore')}
+              disabled={isLoading}
+            >
+              explore
+            </button>
+          </div>
+        )}
+
         <div className="chip-row">
           {filterChips.map((chip) => (
             <button
@@ -448,16 +465,6 @@ function Home({
         </div>
 
         <div className="dock-actions">
-          {images.length > 0 && (
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={() => navigate('/explore')}
-              disabled={isLoading}
-            >
-              explore
-            </button>
-          )}
           <button
             type="button"
             className="ghost-button"
