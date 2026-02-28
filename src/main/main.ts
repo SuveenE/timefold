@@ -9,9 +9,19 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron';
+import { Dirent } from 'fs';
+import fs from 'fs/promises';
+import {
+  app,
+  BrowserWindow,
+  shell,
+  ipcMain,
+  dialog,
+  nativeImage,
+} from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
+import { pathToFileURL } from 'url';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 
@@ -24,6 +34,167 @@ class AppUpdater {
 }
 
 let mainWindow: BrowserWindow | null = null;
+
+type ListedImage = {
+  name: string;
+  path: string;
+  url: string;
+  ext: string;
+};
+
+const IMAGE_EXTENSIONS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'bmp',
+  'tiff',
+  'tif',
+  'avif',
+  'heic',
+  'heif',
+]);
+
+const PREVIEW_DATA_URL_EXTENSIONS = new Set(['heic', 'heif']);
+const MAX_IMAGE_RESULTS = 320;
+const MAX_SCAN_DEPTH = 6;
+const MAX_PREVIEW_WIDTH = 960;
+
+const toImageRecord = async (
+  absolutePath: string,
+): Promise<ListedImage | null> => {
+  const extension = path.extname(absolutePath).slice(1).toLowerCase();
+
+  if (!IMAGE_EXTENSIONS.has(extension)) {
+    return null;
+  }
+
+  const fileUrl = pathToFileURL(absolutePath).href;
+
+  if (!PREVIEW_DATA_URL_EXTENSIONS.has(extension)) {
+    return {
+      name: path.basename(absolutePath),
+      path: absolutePath,
+      url: fileUrl,
+      ext: extension,
+    };
+  }
+
+  try {
+    const decodedImage = nativeImage.createFromPath(absolutePath);
+
+    if (decodedImage.isEmpty()) {
+      return {
+        name: path.basename(absolutePath),
+        path: absolutePath,
+        url: fileUrl,
+        ext: extension,
+      };
+    }
+
+    const { width } = decodedImage.getSize();
+    const previewImage =
+      width > MAX_PREVIEW_WIDTH
+        ? decodedImage.resize({ width: MAX_PREVIEW_WIDTH })
+        : decodedImage;
+
+    return {
+      name: path.basename(absolutePath),
+      path: absolutePath,
+      url: previewImage.toDataURL(),
+      ext: extension,
+    };
+  } catch {
+    return {
+      name: path.basename(absolutePath),
+      path: absolutePath,
+      url: fileUrl,
+      ext: extension,
+    };
+  }
+};
+
+const readDirectorySafely = async (folderPath: string): Promise<Dirent[]> => {
+  try {
+    return await fs.readdir(folderPath, {
+      withFileTypes: true,
+    });
+  } catch {
+    return [];
+  }
+};
+
+const collectDirectImages = async (
+  entries: Dirent[],
+  folderPath: string,
+): Promise<ListedImage[]> => {
+  return entries
+    .filter((entry) => entry.isFile())
+    .reduce<Promise<ListedImage[]>>(async (currentPromise, entry) => {
+      const current = await currentPromise;
+
+      if (current.length >= MAX_IMAGE_RESULTS) {
+        return current;
+      }
+
+      const imageRecord = await toImageRecord(
+        path.join(folderPath, entry.name),
+      );
+
+      if (!imageRecord) {
+        return current;
+      }
+
+      return [...current, imageRecord];
+    }, Promise.resolve([]));
+};
+
+const collectFolderImages = async (
+  folderPath: string,
+  depth: number,
+): Promise<ListedImage[]> => {
+  const entries = await readDirectorySafely(folderPath);
+  const directImages = await collectDirectImages(entries, folderPath);
+
+  if (depth >= MAX_SCAN_DEPTH || directImages.length >= MAX_IMAGE_RESULTS) {
+    return directImages.slice(0, MAX_IMAGE_RESULTS);
+  }
+
+  const subfolders = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(folderPath, entry.name));
+
+  const nestedImages = await subfolders.reduce<Promise<ListedImage[]>>(
+    async (currentPromise, subfolder) => {
+      const current = await currentPromise;
+
+      if (directImages.length + current.length >= MAX_IMAGE_RESULTS) {
+        return current;
+      }
+
+      const remaining =
+        MAX_IMAGE_RESULTS - directImages.length - current.length;
+      const fromSubfolder = await collectFolderImages(subfolder, depth + 1);
+
+      return [...current, ...fromSubfolder.slice(0, remaining)];
+    },
+    Promise.resolve([]),
+  );
+
+  return [...directImages, ...nestedImages].slice(0, MAX_IMAGE_RESULTS);
+};
+
+const listFolderImages = async (rootFolder: string): Promise<ListedImage[]> => {
+  const images = await collectFolderImages(rootFolder, 0);
+
+  return images.sort((first, second) => {
+    return first.path.localeCompare(second.path, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
+};
 
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
@@ -47,6 +218,26 @@ ipcMain.handle('dialog:select-folder', async () => {
   }
 
   return result.filePaths[0];
+});
+
+ipcMain.handle('folder:list-images', async (_event, folderPath: unknown) => {
+  if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
+    return [];
+  }
+
+  const resolvedPath = folderPath.trim();
+
+  try {
+    const stats = await fs.stat(resolvedPath);
+
+    if (!stats.isDirectory()) {
+      return [];
+    }
+  } catch {
+    return [];
+  }
+
+  return listFolderImages(resolvedPath);
 });
 
 if (process.env.NODE_ENV === 'production') {
