@@ -11,6 +11,9 @@
 import path from 'path';
 import { Dirent } from 'fs';
 import fs from 'fs/promises';
+import { createHash } from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import {
   app,
   BrowserWindow,
@@ -21,7 +24,6 @@ import {
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
-import { pathToFileURL } from 'url';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 
@@ -61,6 +63,137 @@ const MAX_IMAGE_RESULTS = 320;
 const MAX_SCAN_DEPTH = 6;
 const MAX_PREVIEW_WIDTH = 960;
 
+const execFileAsync = promisify(execFile);
+
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  tiff: 'image/tiff',
+  tif: 'image/tiff',
+  avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+};
+
+const fileExists = async (filePath: string): Promise<boolean> => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const toDataUrl = (buffer: Buffer, mimeType: string): string => {
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+};
+
+const createNativePreviewDataUrl = (absolutePath: string): string | null => {
+  try {
+    const decodedImage = nativeImage.createFromPath(absolutePath);
+
+    if (decodedImage.isEmpty()) {
+      return null;
+    }
+
+    const { width } = decodedImage.getSize();
+    const previewImage =
+      width > MAX_PREVIEW_WIDTH
+        ? decodedImage.resize({ width: MAX_PREVIEW_WIDTH })
+        : decodedImage;
+
+    return previewImage.toDataURL();
+  } catch {
+    return null;
+  }
+};
+
+const buildPreviewCachePath = async (absolutePath: string): Promise<string> => {
+  const stats = await fs.stat(absolutePath);
+  const cacheKey = createHash('sha1')
+    .update(`${absolutePath}:${stats.size}:${stats.mtimeMs}`)
+    .digest('hex');
+  const cacheFolder = path.join(app.getPath('temp'), 'timefold-image-previews');
+
+  await fs.mkdir(cacheFolder, { recursive: true });
+
+  return path.join(cacheFolder, `${cacheKey}.jpg`);
+};
+
+const createMacHeifPreviewDataUrl = async (
+  absolutePath: string,
+): Promise<string | null> => {
+  if (process.platform !== 'darwin') {
+    return null;
+  }
+
+  try {
+    const previewPath = await buildPreviewCachePath(absolutePath);
+    const alreadyConverted = await fileExists(previewPath);
+
+    if (!alreadyConverted) {
+      await execFileAsync('sips', [
+        '-s',
+        'format',
+        'jpeg',
+        absolutePath,
+        '--out',
+        previewPath,
+      ]);
+    }
+
+    const previewBuffer = await fs.readFile(previewPath);
+    return toDataUrl(previewBuffer, 'image/jpeg');
+  } catch {
+    return null;
+  }
+};
+
+const createFilePreviewDataUrl = async (
+  absolutePath: string,
+  extension: string,
+): Promise<string | null> => {
+  const mimeType = IMAGE_MIME_BY_EXT[extension];
+
+  if (!mimeType) {
+    return null;
+  }
+
+  try {
+    const imageBuffer = await fs.readFile(absolutePath);
+    return toDataUrl(imageBuffer, mimeType);
+  } catch {
+    return null;
+  }
+};
+
+const createImagePreviewUrl = async (
+  absolutePath: string,
+  extension: string,
+): Promise<string | null> => {
+  const nativePreview = createNativePreviewDataUrl(absolutePath);
+
+  if (nativePreview) {
+    return nativePreview;
+  }
+
+  if (PREVIEW_DATA_URL_EXTENSIONS.has(extension)) {
+    const macPreview = await createMacHeifPreviewDataUrl(absolutePath);
+
+    if (macPreview) {
+      return macPreview;
+    }
+
+    return null;
+  }
+
+  return createFilePreviewDataUrl(absolutePath, extension);
+};
+
 const toImageRecord = async (
   absolutePath: string,
 ): Promise<ListedImage | null> => {
@@ -70,49 +203,18 @@ const toImageRecord = async (
     return null;
   }
 
-  const fileUrl = pathToFileURL(absolutePath).href;
+  const previewUrl = await createImagePreviewUrl(absolutePath, extension);
 
-  if (!PREVIEW_DATA_URL_EXTENSIONS.has(extension)) {
-    return {
-      name: path.basename(absolutePath),
-      path: absolutePath,
-      url: fileUrl,
-      ext: extension,
-    };
+  if (!previewUrl) {
+    return null;
   }
 
-  try {
-    const decodedImage = nativeImage.createFromPath(absolutePath);
-
-    if (decodedImage.isEmpty()) {
-      return {
-        name: path.basename(absolutePath),
-        path: absolutePath,
-        url: fileUrl,
-        ext: extension,
-      };
-    }
-
-    const { width } = decodedImage.getSize();
-    const previewImage =
-      width > MAX_PREVIEW_WIDTH
-        ? decodedImage.resize({ width: MAX_PREVIEW_WIDTH })
-        : decodedImage;
-
-    return {
-      name: path.basename(absolutePath),
-      path: absolutePath,
-      url: previewImage.toDataURL(),
-      ext: extension,
-    };
-  } catch {
-    return {
-      name: path.basename(absolutePath),
-      path: absolutePath,
-      url: fileUrl,
-      ext: extension,
-    };
-  }
+  return {
+    name: path.basename(absolutePath),
+    path: absolutePath,
+    url: previewUrl,
+    ext: extension,
+  };
 };
 
 const readDirectorySafely = async (folderPath: string): Promise<Dirent[]> => {
