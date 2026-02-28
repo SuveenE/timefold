@@ -22,9 +22,96 @@ type SplatViewerProps = {
   splat: ImageSplat;
 };
 
+type SparkModuleLike = {
+  PlyReader: new (args: { fileBytes: Uint8Array }) => {
+    numSplats: number;
+    parseHeader: () => Promise<void>;
+    parseSplats: (
+      splatCallback: (
+        index: number,
+        x: number,
+        y: number,
+        z: number,
+        scaleX: number,
+        scaleY: number,
+        scaleZ: number,
+        quatX: number,
+        quatY: number,
+        quatZ: number,
+        quatW: number,
+        opacity: number,
+        r: number,
+        g: number,
+        b: number,
+      ) => void,
+      shCallback?: (...args: unknown[]) => void,
+    ) => void;
+  };
+  SplatMesh: new (options: {
+    fileBytes?: Uint8Array;
+    fileType?: unknown;
+    fileName?: string;
+    url?: string;
+  }) => SparkSplatMesh;
+  SplatFileType: {
+    PLY: unknown;
+  };
+};
+
+const MAX_FALLBACK_POINTS = 180000;
+
+const toErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message.trim();
+  }
+
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error.trim();
+  }
+
+  return 'Unknown error';
+};
+
+const toUint8Array = (bytes: unknown): Uint8Array | null => {
+  if (!bytes) {
+    return null;
+  }
+
+  if (bytes instanceof Uint8Array) {
+    return new Uint8Array(bytes);
+  }
+
+  if (bytes instanceof ArrayBuffer) {
+    return new Uint8Array(bytes);
+  }
+
+  if (ArrayBuffer.isView(bytes)) {
+    const view = bytes;
+    return new Uint8Array(
+      view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength),
+    );
+  }
+
+  if (
+    typeof bytes === 'object' &&
+    bytes &&
+    (bytes as { type?: unknown }).type === 'Buffer' &&
+    Array.isArray((bytes as { data?: unknown }).data)
+  ) {
+    return new Uint8Array((bytes as { data: number[] }).data);
+  }
+
+  if (Array.isArray(bytes)) {
+    return new Uint8Array(bytes);
+  }
+
+  return null;
+};
+
 export default function SplatViewer({ splat }: SplatViewerProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadInfo, setLoadInfo] = useState<string | null>(null);
   const [isViewerReady, setIsViewerReady] = useState(false);
 
   useEffect(() => {
@@ -38,6 +125,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     let animationFrameId = 0;
     let previousFrameTime = performance.now();
     let loadedSplat: SparkSplatMesh | null = null;
+    let loadedPoints: THREE.Points<THREE.BufferGeometry> | null = null;
     const orbitTarget = new THREE.Vector3(0, 0, 0);
     let orbitRadius = 3.2;
     let orbitYaw = 0.42;
@@ -73,6 +161,117 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
     const resizeObserver = new ResizeObserver(updateSize);
     resizeObserver.observe(mountNode);
 
+    const applyOrbitFromBounds = (bounds: THREE.Box3) => {
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+
+      if (
+        Number.isFinite(sphere.radius) &&
+        Number.isFinite(sphere.center.x) &&
+        Number.isFinite(sphere.center.y) &&
+        Number.isFinite(sphere.center.z) &&
+        sphere.radius > 0
+      ) {
+        orbitTarget.copy(sphere.center);
+        orbitRadius = Math.max(1.45, sphere.radius * 3.2);
+        orbitPitch = 0.14;
+      }
+    };
+
+    const createPointFallback = async (
+      sparkModule: SparkModuleLike,
+      bytes: Uint8Array,
+    ): Promise<THREE.Points<THREE.BufferGeometry>> => {
+      const reader = new sparkModule.PlyReader({ fileBytes: bytes });
+      await reader.parseHeader();
+
+      if (!Number.isFinite(reader.numSplats) || reader.numSplats < 1) {
+        throw new Error('PLY file has no splats');
+      }
+
+      const stride = Math.max(
+        1,
+        Math.ceil(reader.numSplats / MAX_FALLBACK_POINTS),
+      );
+      const sampleCount = Math.ceil(reader.numSplats / stride);
+      const positions = new Float32Array(sampleCount * 3);
+      const colors = new Float32Array(sampleCount * 3);
+      let writeIndex = 0;
+
+      reader.parseSplats(
+        (
+          index: number,
+          x: number,
+          y: number,
+          z: number,
+          _scaleX: number,
+          _scaleY: number,
+          _scaleZ: number,
+          _quatX: number,
+          _quatY: number,
+          _quatZ: number,
+          _quatW: number,
+          _opacity: number,
+          r: number,
+          g: number,
+          b: number,
+        ) => {
+          if (index % stride !== 0) {
+            return;
+          }
+
+          if (writeIndex >= sampleCount) {
+            return;
+          }
+
+          const base = writeIndex * 3;
+          positions[base] = x;
+          positions[base + 1] = y;
+          positions[base + 2] = z;
+          colors[base] = clamp(r, 0, 1);
+          colors[base + 1] = clamp(g, 0, 1);
+          colors[base + 2] = clamp(b, 0, 1);
+          writeIndex += 1;
+        },
+      );
+
+      if (writeIndex === 0) {
+        throw new Error('No splats sampled from PLY');
+      }
+
+      const finalPositions =
+        writeIndex === sampleCount
+          ? positions
+          : positions.subarray(0, writeIndex * 3);
+      const finalColors =
+        writeIndex === sampleCount
+          ? colors
+          : colors.subarray(0, writeIndex * 3);
+      const positionAttribute = new THREE.BufferAttribute(finalPositions, 3);
+      const colorAttribute = new THREE.BufferAttribute(finalColors, 3);
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', positionAttribute);
+      geometry.setAttribute('color', colorAttribute);
+
+      const bounds = new THREE.Box3().setFromBufferAttribute(positionAttribute);
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+      const pointSize =
+        Number.isFinite(sphere.radius) && sphere.radius > 0
+          ? Math.max(0.004, sphere.radius / 440)
+          : 0.01;
+      const material = new THREE.PointsMaterial({
+        size: pointSize,
+        sizeAttenuation: true,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.92,
+      });
+      const points = new THREE.Points(geometry, material);
+      points.userData.bounds = bounds;
+      points.frustumCulled = false;
+      return points;
+    };
+
     const renderFrame = (timeMs: number) => {
       if (isDisposed) {
         return;
@@ -82,7 +281,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       const deltaTime = Math.max(0, (timeMs - previousFrameTime) / 1000);
       previousFrameTime = timeMs;
 
-      if (loadedSplat) {
+      if (loadedSplat || loadedPoints) {
         orbitYaw += deltaTime * 0.16;
         const pitch = clamp(orbitPitch, -0.45, 0.45);
         const cosPitch = Math.cos(pitch);
@@ -95,12 +294,14 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
         camera.lookAt(orbitTarget);
         camera.updateMatrixWorld();
 
-        loadedSplat.update({
-          time: timeMs / 1000,
-          deltaTime,
-          viewToWorld: camera.matrixWorld,
-          globalEdits: [],
-        });
+        if (loadedSplat) {
+          loadedSplat.update({
+            time: timeMs / 1000,
+            deltaTime,
+            viewToWorld: camera.matrixWorld,
+            globalEdits: [],
+          });
+        }
       }
 
       renderer.render(scene, camera);
@@ -110,51 +311,100 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
 
     const loadSplat = async () => {
       setLoadError(null);
+      setLoadInfo(null);
       setIsViewerReady(false);
 
       try {
-        const sparkModule = await import('@sparkjsdev/spark');
-        const splatBytes = await window.electron.folder.getSplatBytes(
+        const sparkModule = (await import(
+          '@sparkjsdev/spark'
+        )) as SparkModuleLike;
+        const bytesFromMain = await window.electron.folder.getSplatBytes(
           splat.path,
         );
-        const mesh = new sparkModule.SplatMesh(
-          splatBytes
-            ? {
-                fileBytes: splatBytes,
-                fileType: sparkModule.SplatFileType.PLY,
-                fileName: splat.name,
-              }
-            : {
-                url: splat.url,
-              },
-        ) as SparkSplatMesh;
-        await mesh.initialized;
+        const splatBytes = toUint8Array(bytesFromMain);
+        let sparkError: unknown = null;
 
-        if (isDisposed) {
-          mesh.dispose();
+        try {
+          const mesh = new sparkModule.SplatMesh(
+            splatBytes
+              ? {
+                  fileBytes: splatBytes,
+                  fileType: sparkModule.SplatFileType.PLY,
+                  fileName: splat.name,
+                }
+              : {
+                  url: splat.url,
+                  fileName: splat.name,
+                },
+          ) as SparkSplatMesh;
+          await mesh.initialized;
+
+          if (isDisposed) {
+            mesh.dispose();
+            return;
+          }
+
+          loadedSplat = mesh;
+          scene.add(mesh);
+
+          try {
+            applyOrbitFromBounds(mesh.getBoundingBox(true));
+          } catch {
+            // Keep default camera framing when Spark cannot report bounds.
+          }
+
+          setIsViewerReady(true);
           return;
+        } catch (error) {
+          sparkError = error;
         }
 
-        loadedSplat = mesh;
-        scene.add(mesh);
+        if (splatBytes) {
+          try {
+            const points = await createPointFallback(sparkModule, splatBytes);
 
-        const bounds = mesh.getBoundingBox(true);
-        const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+            if (isDisposed) {
+              const pointsMaterial = points.material;
+              points.geometry.dispose();
+              if (pointsMaterial instanceof THREE.Material) {
+                pointsMaterial.dispose();
+              }
+              return;
+            }
 
-        if (
-          Number.isFinite(sphere.radius) &&
-          Number.isFinite(sphere.center.x) &&
-          sphere.radius > 0
-        ) {
-          orbitTarget.copy(sphere.center);
-          orbitRadius = Math.max(1.45, sphere.radius * 3.2);
-          orbitPitch = 0.14;
+            loadedPoints = points;
+            scene.add(points);
+
+            const pointBounds = points.userData.bounds as
+              | THREE.Box3
+              | undefined;
+            if (pointBounds) {
+              applyOrbitFromBounds(pointBounds);
+            }
+
+            setLoadInfo(
+              'Spark could not render this file. Showing simplified point-cloud preview.',
+            );
+            setIsViewerReady(true);
+            return;
+          } catch (fallbackError) {
+            const sparkMessage = toErrorMessage(sparkError);
+            const fallbackMessage = toErrorMessage(fallbackError);
+            setLoadError(
+              `Unable to render this \`.ply\`. Spark: ${sparkMessage}. Fallback: ${fallbackMessage}.`,
+            );
+            return;
+          }
         }
 
-        setIsViewerReady(true);
-      } catch {
+        setLoadError(
+          `Unable to render this \`.ply\`: ${toErrorMessage(sparkError)}.`,
+        );
+      } catch (error) {
         if (!isDisposed) {
-          setLoadError('Unable to render this `.ply` with Spark.');
+          setLoadError(
+            `Unable to render this \`.ply\`: ${toErrorMessage(error)}.`,
+          );
         }
       }
     };
@@ -173,6 +423,15 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       if (loadedSplat) {
         scene.remove(loadedSplat);
         loadedSplat.dispose();
+      }
+
+      if (loadedPoints) {
+        scene.remove(loadedPoints);
+        loadedPoints.geometry.dispose();
+        const pointsMaterial = loadedPoints.material;
+        if (pointsMaterial instanceof THREE.Material) {
+          pointsMaterial.dispose();
+        }
       }
 
       renderer.dispose();
@@ -194,6 +453,7 @@ export default function SplatViewer({ splat }: SplatViewerProps) {
       {!loadError && !isViewerReady ? (
         <p className="image-card-splat-note">Loading 3D preview...</p>
       ) : null}
+      {loadInfo ? <p className="image-card-splat-note">{loadInfo}</p> : null}
       {loadError ? <p className="image-card-splat-note">{loadError}</p> : null}
     </div>
   );
