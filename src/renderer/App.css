@@ -70,6 +70,7 @@ body {
 .photo-cloud {
   position: absolute;
   inset: 0;
+  animation: cloud-sway 18s ease-in-out infinite;
 }
 
 .photo-tile {
@@ -78,8 +79,25 @@ body {
   pointer-events: none;
 }
 
+.orbit-track {
+  animation: orbit-around var(--orbit-duration, 26s) linear infinite;
+  animation-delay: var(--orbit-delay, 0s);
+}
+
+.orbit-orient {
+  animation: counter-orbit var(--counter-duration, 28s) linear infinite;
+  animation-delay: var(--orbit-delay, 0s);
+}
+
 .photo-motion {
+  animation: bob-tile var(--bob-duration, 7s) ease-in-out infinite;
+  animation-delay: var(--orbit-delay, 0s);
+}
+
+.photo-frame {
   border-radius: 8px;
+  transform: rotate(var(--tile-rotation, 0deg));
+  transform-origin: center;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.18);
   background: #121212;
@@ -87,11 +105,11 @@ body {
   filter: blur(var(--tile-blur, 0px));
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-  animation: float-tile 16s ease-in-out infinite;
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.photo-motion img {
+.photo-frame img {
   display: block;
   width: 100%;
   height: auto;
@@ -265,13 +283,49 @@ body {
   padding-inline: 12px;
 }
 
-@keyframes float-tile {
+@keyframes orbit-around {
+  0% {
+    transform: rotate(0deg) translate(var(--orbit-x), var(--orbit-y));
+  }
+
+  50% {
+    transform: rotate(180deg) translate(var(--orbit-x), var(--orbit-y));
+  }
+
+  100% {
+    transform: rotate(360deg) translate(var(--orbit-x), var(--orbit-y));
+  }
+}
+
+@keyframes counter-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes bob-tile {
   0%,
   100% {
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0) scale(1);
   }
+
   50% {
-    transform: translate3d(var(--drift-x), var(--drift-y), 0);
+    transform: translate3d(var(--bob-x), var(--bob-y), 0) scale(1.02);
+  }
+}
+
+@keyframes cloud-sway {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  50% {
+    transform: translate3d(10px, -8px, 0) rotate(1.1deg);
   }
 }
 

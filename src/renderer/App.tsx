@@ -14,18 +14,29 @@ type ClusterLayout = {
   top: number;
   width: number;
   rotation: number;
-  driftX: number;
-  driftY: number;
-  delay: number;
-  duration: number;
+  orbitX: number;
+  orbitY: number;
+  orbitDuration: number;
+  orbitDelay: number;
+  counterDuration: number;
+  bobX: number;
+  bobY: number;
+  bobDuration: number;
   opacity: number;
   blur: number;
   zIndex: number;
 };
 
 type TileStyle = CSSProperties & {
-  '--drift-x': string;
-  '--drift-y': string;
+  '--orbit-x': string;
+  '--orbit-y': string;
+  '--orbit-duration': string;
+  '--orbit-delay': string;
+  '--counter-duration': string;
+  '--bob-x': string;
+  '--bob-y': string;
+  '--bob-duration': string;
+  '--tile-rotation': string;
   '--tile-opacity': string;
   '--tile-blur': string;
 };
@@ -82,10 +93,14 @@ const createClusterLayout = (
     top: clamp(46 + Math.sin(angle) * radius * 0.86 + yJitter, 8, 90),
     width: 56 + random() * 94 + depth * 35,
     rotation: (random() - 0.5) * 32,
-    driftX: (random() - 0.5) * 26,
-    driftY: (random() - 0.5) * 20,
-    duration: 10 + random() * 16,
-    delay: random() * 12,
+    orbitX: (random() - 0.5) * (14 + (1 - depth) * 34),
+    orbitY: (random() - 0.5) * (12 + (1 - depth) * 24),
+    orbitDuration: 14 + random() * 22,
+    orbitDelay: random() * 20,
+    counterDuration: 16 + random() * 20,
+    bobX: (random() - 0.5) * 13,
+    bobY: (random() - 0.5) * 16,
+    bobDuration: 4 + random() * 8,
     opacity: clamp(0.58 + depth * 0.45, 0.46, 1),
     blur: clamp((1 - depth) * 0.55, 0, 0.7),
     zIndex: 5 + Math.round(depth * 140),
@@ -286,11 +301,16 @@ function Home() {
                 top: `${layout.top}%`,
                 width: `${layout.width}px`,
                 zIndex: layout.zIndex,
-                transform: `translate(-50%, -50%) rotate(${layout.rotation}deg)`,
-                animationDuration: `${layout.duration}s`,
-                animationDelay: `-${layout.delay}s`,
-                '--drift-x': `${layout.driftX}px`,
-                '--drift-y': `${layout.driftY}px`,
+                transform: 'translate(-50%, -50%)',
+                '--orbit-x': `${layout.orbitX}px`,
+                '--orbit-y': `${layout.orbitY}px`,
+                '--orbit-duration': `${layout.orbitDuration}s`,
+                '--orbit-delay': `-${layout.orbitDelay}s`,
+                '--counter-duration': `${layout.counterDuration}s`,
+                '--bob-x': `${layout.bobX}px`,
+                '--bob-y': `${layout.bobY}px`,
+                '--bob-duration': `${layout.bobDuration}s`,
+                '--tile-rotation': `${layout.rotation}deg`,
                 '--tile-opacity': `${layout.opacity}`,
                 '--tile-blur': `${layout.blur}px`,
               };
@@ -301,25 +321,31 @@ function Home() {
                   className="photo-tile"
                   style={tileStyle}
                 >
-                  <div className="photo-motion">
-                    <img
-                      src={image.url}
-                      alt=""
-                      loading="lazy"
-                      draggable={false}
-                      onError={() => {
-                        setFailedImagePaths((current) => {
-                          if (current[image.path]) {
-                            return current;
-                          }
+                  <div className="orbit-track">
+                    <div className="orbit-orient">
+                      <div className="photo-motion">
+                        <div className="photo-frame">
+                          <img
+                            src={image.url}
+                            alt=""
+                            loading="lazy"
+                            draggable={false}
+                            onError={() => {
+                              setFailedImagePaths((current) => {
+                                if (current[image.path]) {
+                                  return current;
+                                }
 
-                          return {
-                            ...current,
-                            [image.path]: true,
-                          };
-                        });
-                      }}
-                    />
+                                return {
+                                  ...current,
+                                  [image.path]: true,
+                                };
+                              });
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </figure>
               );
