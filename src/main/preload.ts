@@ -10,6 +10,8 @@ export type ListedImage = {
   ext: string;
   capturedAt?: string | null;
   location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 export type ImageSplat = {

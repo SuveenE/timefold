@@ -44,6 +44,8 @@ type ListedImage = {
   ext: string;
   capturedAt?: string | null;
   location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 const IMAGE_EXTENSIONS = new Set([
@@ -87,6 +89,8 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
 type ImageMetadata = {
   capturedAt: string | null;
   location: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type PersistedImageMetadata = {
@@ -95,6 +99,8 @@ type PersistedImageMetadata = {
   ext: string;
   capturedAt: string | null;
   location: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type ImageSplat = {
@@ -136,6 +142,8 @@ const extractImageMetadata = async (
 ): Promise<ImageMetadata> => {
   let capturedAt: string | null = null;
   let location: string | null = null;
+  let latitude: number | null = null;
+  let longitude: number | null = null;
 
   if (process.platform === 'darwin') {
     try {
@@ -160,11 +168,13 @@ const extractImageMetadata = async (
       }
 
       if (rawLatitude && rawLongitude) {
-        const latitude = Number(rawLatitude);
-        const longitude = Number(rawLongitude);
+        const nextLatitude = Number(rawLatitude);
+        const nextLongitude = Number(rawLongitude);
 
-        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-          location = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+        if (Number.isFinite(nextLatitude) && Number.isFinite(nextLongitude)) {
+          latitude = nextLatitude;
+          longitude = nextLongitude;
+          location = `${nextLatitude.toFixed(6)}, ${nextLongitude.toFixed(6)}`;
         }
       }
     } catch {
@@ -185,6 +195,8 @@ const extractImageMetadata = async (
   return {
     capturedAt,
     location,
+    latitude,
+    longitude,
   };
 };
 
@@ -372,6 +384,8 @@ const toImageRecord = async (
     ext: extension,
     capturedAt: metadata.capturedAt,
     location: metadata.location,
+    latitude: metadata.latitude,
+    longitude: metadata.longitude,
   };
 };
 
@@ -467,6 +481,8 @@ const persistImageMetadata = async (
     ext: image.ext,
     capturedAt: image.capturedAt ?? null,
     location: image.location ?? null,
+    latitude: image.latitude ?? null,
+    longitude: image.longitude ?? null,
   }));
 
   const payload = {
